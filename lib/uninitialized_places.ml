@@ -59,7 +59,11 @@ let go prog mir : analysis_results =
 
   (* Effect of using (copying or moving) a place [pl] on the abstract state [state]. *)
   let move_or_copy pl state =
-    state (* TODO : This code is incorrect. Replace with correct code. *)
+    if typ_is_copy prog (typ_of_place prog mir pl) then 
+      state
+    else
+      deinitialize pl state
+
   in
 
   (* These modules are parameters of the [Fix.DataFlow.ForIntSegment] functor below. *)
