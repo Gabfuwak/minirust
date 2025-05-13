@@ -81,7 +81,19 @@ let go prog mir : analysis_results =
       similar data flow analysis. *)
 
     let foreach_root go =
-      () (* TODO *)
+      
+      let initial_state = 
+        Hashtbl.fold (
+          fun local _ state -> 
+            match local with
+            | Lparam _ -> initialize (PlLocal local) state (* avec initialize on le retire de l'ensemble *)
+            | _ -> state
+        ) mir.mlocals all_places 
+      in
+
+      go mir.mentry initial_state
+      
+       
 
     let foreach_successor lbl state go =
         () (* TODO *)
