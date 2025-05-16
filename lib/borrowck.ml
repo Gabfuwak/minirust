@@ -95,9 +95,19 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
           )
         | RVbinop (_, _, _) -> ()
         | RVunop (_, _) -> ()
-        | RVmake (_, _) -> ()
+        | RVmake (struct_name, struct_fields) -> 
+            (
+            match fields_types_fresh prog struct_name with
+            | proto_fields_types, proto_struct_type -> 
+                let typ_dest = typ_of_place prog mir place_dest in
+                unify_types typ_dest proto_struct_type;
+                List.iter2 (
+                  fun struct_field proto_field_type ->
+                    let struct_field_type = typ_of_place prog mir struct_field in
+                    unify_types struct_field_type proto_field_type
+                ) struct_fields proto_fields_types
+            )
         ) 
-
     | Icall (name, args, retplace, func_lbl) -> 
         (
         match fn_prototype_fresh prog name with
@@ -107,16 +117,12 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
             let ret_typ = typ_of_place prog mir retplace in
             unify_types ret_typ proto_return_type;
 
-
             List.iter2 (
               fun arg prototype_arg_type -> 
                 let arg_type = typ_of_place prog mir arg in
                 unify_types arg_type prototype_arg_type
             ) args proto_arg_types;
-            
-
         )
-
     | Ideinit _ | Igoto _ | Iif _ | Ireturn -> ()
     )
   mir.minstrs;
