@@ -98,11 +98,27 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
         | RVmake (_, _) -> ()
         ) 
 
-    | Ideinit _ -> ()
-    | Igoto _ -> ()
-    | Iif _ -> ()
-    | Ireturn -> ()
-    | Icall _ -> ())
+    | Icall (name, args, retplace, func_lbl) -> 
+        (
+        match fn_prototype_fresh prog name with
+        | proto_arg_types, proto_return_type, func_constraints -> 
+            List.iter ( fun curr_c -> add_outlives curr_c ) func_constraints;
+            
+            let ret_typ = typ_of_place prog mir retplace in
+            unify_types ret_typ proto_return_type;
+
+
+            List.iter2 (
+              fun arg prototype_arg_type -> 
+                let arg_type = typ_of_place prog mir arg in
+                unify_types arg_type prototype_arg_type
+            ) args proto_arg_types;
+            
+
+        )
+
+    | Ideinit _ | Igoto _ | Iif _ | Ireturn -> ()
+    )
   mir.minstrs;
 
   (* The [living] variable contains constraints of the form "lifetime 'a should be
