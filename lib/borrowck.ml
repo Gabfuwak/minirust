@@ -101,7 +101,7 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
     | Ideinit _ -> ()
     | Igoto _ -> ()
     | Iif _ -> ()
-    | Ireturn _ -> ()
+    | Ireturn -> ()
     | Icall _ -> ())
   mir.minstrs;
 
