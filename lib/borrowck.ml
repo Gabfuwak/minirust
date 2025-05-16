@@ -85,16 +85,12 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
             let typ_dest = typ_of_place prog mir place_dest in
             let typ_src = typ_of_place prog mir place_src in
             unify_types typ_dest typ_src
-        | RVconst _ -> ()
-        | RVunit -> ()
         | RVborrow (_, borrowed_place) -> (
             match typ_of_place prog mir place_dest with
             | Tborrow (dest_lft, _, _) -> 
                 LSet.iter (fun curr_lft -> add_outlives (dest_lft, curr_lft) ) (collect_borrow_lifetimes borrowed_place)
-            | _ -> failwith "(borrowck) unreachable 1" (* le 1 est juste la pour m'y retrouver si jamais ça arrive*)
-          )
-        | RVbinop (_, _, _) -> ()
-        | RVunop (_, _) -> ()
+            | _ -> failwith "(borrowck) RVborrow n'a pas le type Tborrow (unreachable)"
+        )
         | RVmake (struct_name, struct_fields) -> 
             (
             match fields_types_fresh prog struct_name with
@@ -107,6 +103,7 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
                     unify_types struct_field_type proto_field_type
                 ) struct_fields proto_fields_types
             )
+        | RVunop _ | RVbinop _| RVconst _ | RVunit -> ()
         ) 
     | Icall (name, args, retplace, func_lbl) -> 
         (
