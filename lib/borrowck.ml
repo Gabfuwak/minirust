@@ -41,6 +41,49 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
     SUGGESTION: use functions [typ_of_place], [fields_types_fresh] and [fn_prototype_fresh].
   *)
 
+
+  let rec collect_borrow_lifetimes_aux pl acc = 
+    match pl with
+    | PlDeref borrowed_place ->(
+        match typ_of_place prog mir borrowed_place with
+        | Tborrow (borrow_lifetime, _, _) -> collect_borrow_lifetimes_aux borrowed_place (LSet.add borrow_lifetime acc)
+        | _ -> failwith "(borrowck) Erreur: dereferencement d'un non-emprunt"
+    )
+    | PlField (pl, _) -> collect_borrow_lifetimes_aux pl acc
+    | PlLocal _  -> acc
+  in
+    
+  let collect_borrow_lifetimes pl = 
+    collect_borrow_lifetimes_aux pl (LSet.empty)
+  in
+
+  Array.iteri
+  (fun lbl (instr, loc) ->
+    match instr with
+    | Iassign (place_dest, rv, this_lbl) ->(
+        match rv with
+        | RVplace place_src -> unify_lft 
+            
+        | RVconst _ -> ()
+        | RVunit -> ()
+        | RVborrow (_, borrowed_place) -> (
+            match typ_of_place prog mir place_dest with
+            | Tborrow (dest_lft, _, _) -> 
+                LSet.iter (fun curr_lft -> add_outlives (dest_lft, curr_lft) ) (collect_borrow_lifetimes borrowed_place)
+            | _ -> failwith "(borrowck) unreachable 1" (* le 1 est juste la pour m'y retrouver si jamais ça arrive*)
+          )
+        | RVbinop (_, _, _) -> ()
+        | RVunop (_, _) -> ()
+        | RVmake (_, _) -> ()
+        ) 
+
+    | Ideinit _ -> ()
+    | Igoto _ -> ()
+    | Iif _ -> ()
+    | Ireturn _ -> ()
+    | Icall _ -> ())
+  mir.minstrs;
+
   (* The [living] variable contains constraints of the form "lifetime 'a should be
     alive at program point p". *)
   let living : PpSet.t LMap.t ref = ref LMap.empty in
