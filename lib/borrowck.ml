@@ -57,13 +57,34 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
     collect_borrow_lifetimes_aux pl (LSet.empty)
   in
 
+  let rec unify_types typ1 typ2 = 
+  match typ1, typ2 with
+  | Tstruct (name1, elem_lifetimes1), Tstruct (name2, elem_lifetimes2) ->
+      if name1 = name2 then
+        List.iter2 (fun lifetime1 lifetime2 -> unify_lft lifetime1 lifetime2) elem_lifetimes1 elem_lifetimes2
+      else
+        failwith "(borrowck) Structs impossible a unifier. (devrait etre unreachable)"
+  | Tborrow (lft1, mut1, typ1), Tborrow (lft2, mut2, typ2) -> 
+      if mut1 = mut2 then(
+        unify_types typ1 typ2;
+        unify_lft lft1 lft2;
+      )
+      else
+        failwith "(borrowck) Borrows impossible a unifier. (devrait etre unreachable)"
+  | Tunit, Tunit | Ti32, Ti32 | Tbool, Tbool -> () (* pas de durées de vie a unifier.. *)
+  | _, _ -> 
+        failwith "(borrowck) Types incompatibles impossible a unifier. (devrait etre unreachable)"
+  in
+
   Array.iteri
   (fun lbl (instr, loc) ->
     match instr with
     | Iassign (place_dest, rv, this_lbl) ->(
         match rv with
-        | RVplace place_src -> unify_lft 
-            
+        | RVplace place_src -> 
+            let typ_dest = typ_of_place prog mir place_dest in
+            let typ_src = typ_of_place prog mir place_src in
+            unify_types typ_dest typ_src
         | RVconst _ -> ()
         | RVunit -> ()
         | RVborrow (_, borrowed_place) -> (
