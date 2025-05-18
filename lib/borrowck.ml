@@ -139,7 +139,7 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
   (* Run the live local analysis. See module Live_locals for documentation. *)
   let live_locals = Live_locals.go mir in
 
-  (* TODO: generate living constraints:
+  (* TODO (DONE): generate living constraints:
      - Add living constraints corresponding to the fact that liftimes appearing free
        in the type of live locals at some program point should be alive at that
        program point.
@@ -201,10 +201,24 @@ let borrowck prog mir =
   (* We check the code honors the non-mutability of shared borrows. *)
   Array.iteri
     (fun _ (instr, loc) ->
-      (* TODO: check that we never write to shared borrows, and that we never create mutable borrows
+      (* TODO (DONE): check that we never write to shared borrows, and that we never create mutable borrows
         below shared borrows. Function [place_mut] can be used to determine if a place is mutable, i.e., if it
         does not dereference a shared borrow. *)
-      ()
+        match instr with
+        | Iassign (_, RVborrow (Mut, borrowed_place), _) ->
+            let mutability = place_mut prog mir borrowed_place in
+            if mutability = NotMut then
+              Error.error loc "Cannot create a mutable borrow of a shared borrow"
+            else
+              ()
+        | Icall (_, _, place_dest, _) | Iassign (place_dest, _, _) -> 
+            let mutability = place_mut prog mir place_dest in
+            if mutability = NotMut then
+              Error.error loc "Tried to write a value to a shared borrow" (* Si je comprends bien, les places immutables sont toujours dans des shared borrows *)
+            else
+              ()
+            
+        | _ -> ()
     )
     mir.minstrs;
 
