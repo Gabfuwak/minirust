@@ -88,7 +88,7 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
         | RVborrow (_, borrowed_place) -> (
             match typ_of_place prog mir place_dest with
             | Tborrow (dest_lft, _, _) -> 
-                LSet.iter (fun curr_lft -> add_outlives (dest_lft, curr_lft) ) (collect_borrow_lifetimes borrowed_place)
+                LSet.iter (fun curr_lft -> add_outlives (curr_lft, dest_lft) ) (collect_borrow_lifetimes borrowed_place)
             | _ -> failwith "(borrowck) RVborrow n'a pas le type Tborrow (unreachable)"
         )
         | RVmake (struct_name, struct_fields) -> 
