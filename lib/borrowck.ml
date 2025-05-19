@@ -228,6 +228,23 @@ let borrowck prog mir =
     enough to ensure safety. I.e., if [lft_sets lft] contains program point [PpInCaller lft'], this
     means that we need that [lft] be alive when [lft'] dies, i.e., [lft'] outlives [lft]. This relation
     has to be declared in [mir.outlives_graph]. *)
+  List.iter (
+    fun lft -> 
+      let valid_points = lft_sets lft in
+      PpSet.iter(
+        fun point ->
+          match point with
+          | PpInCaller lft' -> (
+              match LMap.find_opt lft' mir.moutlives_graph with
+              | None ->
+                  Error.error mir.mloc "Missing outlives constraint"
+              | Some lifetime_set ->
+                  if not (LSet.mem lft lifetime_set) then
+                    Error.error mir.mloc "Missing outlives constraint"
+              )
+          | _ -> ()
+      ) valid_points
+  ) mir.mgeneric_lfts;
 
   (* We check that we never perform any operation which would conflict with an existing
     borrows. *)
