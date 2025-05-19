@@ -148,6 +148,30 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
        function.
   *)
 
+  Array.iteri
+    (fun lbl _ ->
+      let live_at_point = live_locals lbl in
+      
+      LocSet.iter 
+        (fun loc ->
+          let typ = Hashtbl.find mir.mlocals loc in
+          
+          let lifetimes = free_lfts typ in
+          
+          LSet.iter
+            (fun lft -> add_living (PpLocal lbl) lft)
+            lifetimes)
+        live_at_point
+  ) mir.minstrs;
+
+  List.iter
+    (fun lft ->
+      Array.iteri
+        (fun lbl _ -> add_living (PpLocal lbl) lft)
+        mir.minstrs
+  ) mir.mgeneric_lfts;
+
+
   (* If [lft] is a generic lifetime, [lft] is always alive at [PpInCaller lft]. *)
   List.iter (fun lft -> add_living (PpInCaller lft) lft) mir.mgeneric_lfts;
 
