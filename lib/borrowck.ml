@@ -235,12 +235,16 @@ let borrowck prog mir =
         fun point ->
           match point with
           | PpInCaller lft' -> (
-              match LMap.find_opt lft' mir.moutlives_graph with
-              | None ->
-                  Error.error mir.mloc "Missing outlives constraint"
-              | Some lifetime_set ->
-                  if not (LSet.mem lft lifetime_set) then
-                    Error.error mir.mloc "Missing outlives constraint"
+                match LMap.find_opt lft' mir.moutlives_graph with
+                | None ->
+                    Error.error mir.mloc 
+                    "Missing outlives constraint in function prototype: '%s' should outlive '%s'"
+                    (string_of_lft lft') (string_of_lft lft)
+          | Some lifetime_set ->
+                    if not (LSet.mem lft lifetime_set) then
+                    Error.error mir.mloc 
+                    "Missing outlives constraint in function prototype: '%s' should outlive '%s'"
+                    (string_of_lft lft') (string_of_lft lft)
               )
           | _ -> ()
       ) valid_points
