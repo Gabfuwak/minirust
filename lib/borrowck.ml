@@ -353,6 +353,22 @@ let borrowck prog mir =
       | Iassign (_, RVborrow (mut, pl), _) ->
           if conflicting_borrow (mut = Mut) pl then
             Error.error loc "There is a borrow conflicting this borrow."
-      | _ -> () (* TODO: complete the other cases*)
+      | Iassign (_, RVbinop(_, pl1, pl2), _) -> 
+          check_use pl1;
+          check_use pl2
+      | Iassign (_, RVmake(_, pls), _) -> 
+          List.iter(
+            fun pl ->
+              check_use pl
+          )pls
+      | Iassign (_, RVplace pl , _) -> 
+          check_use pl
+      | Icall (_, param_pls, _, _) ->
+          List.iter(
+            fun pl ->
+              check_use pl
+          )param_pls
+      | Iif (pl, _, _) -> check_use pl
+      | Ireturn | Iassign _ | Ideinit _ | Igoto _ -> ()
     )
     mir.minstrs
