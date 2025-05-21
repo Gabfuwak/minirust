@@ -369,6 +369,7 @@ let borrowck prog mir =
               check_use pl
           )param_pls
       | Iif (pl, _, _) -> check_use pl
-      | Ireturn | Iassign _ | Ideinit _ | Igoto _ -> ()
+      | Ireturn -> check_use (PlLocal Lret)
+      | Iassign _ | Ideinit _ | Igoto _ -> ()
     )
     mir.minstrs
