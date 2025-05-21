@@ -266,7 +266,7 @@ let borrowck prog mir =
                     "Missing outlives constraint in function prototype: '%s' should outlive '%s'"
                     (string_of_lft lft) (string_of_lft lft')
           | Some lifetime_set ->
-                    if not (LSet.mem lft lifetime_set) then
+                    if not (LSet.mem lft' lifetime_set) then
                     Error.error mir.mloc 
                     "Missing outlives constraint in function prototype: '%s' should outlive '%s'"
                     (string_of_lft lft) (string_of_lft lft')
