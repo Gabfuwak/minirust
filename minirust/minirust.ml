@@ -2,10 +2,10 @@ open Minirust
 open Ast
 
 let () =
-  if Array.length Sys.argv != 2 then Error.usage ();
+  if Array.length Sys.argv < 2 then Error.usage ();
   let filename = Sys.argv.(1) in
+  let output_file = if Array.length Sys.argv >= 3 then Some Sys.argv.(2) else None in
   try
-
     let prog = Parser_entry.parse_file filename in
 
     Typecheck.go prog;
@@ -24,6 +24,10 @@ let () =
            Borrowck.borrowck prog mir
          | _ -> ())
       prog;
+
+    (match output_file with 
+     | Some out -> Emit_c.emit_c prog out
+     | None -> ());
 
     ()
   with Error.Error (start, end_, msg) ->
