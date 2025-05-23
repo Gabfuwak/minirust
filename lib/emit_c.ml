@@ -1,10 +1,15 @@
 open Minimir
 open Ast
 
-let ctyp_of_mirtyp typ =
+let rec ctyp_of_mirtyp typ =
   match typ with
     | Tstruct (struct_name, _) -> struct_name
-    | Tborrow (_, _, _) -> failwith "todo: add ctyp_of_mirtyp borrow"
+    | Tborrow (_, mut, borrow_type) -> (
+        match mut with
+        | Mut -> Printf.sprintf "%s*" (ctyp_of_mirtyp borrow_type)
+        | NotMut ->  Printf.sprintf "const %s*" (ctyp_of_mirtyp borrow_type)
+      )
+
     | Tunit -> "void"
     | Ti32 -> "int32_t"
     | Tbool -> "bool"
@@ -38,6 +43,8 @@ let emit_function_header fname mir oc =
   Printf.fprintf oc ");\n"
   
 
+let emit_struct_header struct decl oc =
+  
 
 let emit_struct_typedef struct_decl oc =
 
