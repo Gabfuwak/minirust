@@ -3,7 +3,7 @@ open Ast
 
 let ctyp_of_mirtyp typ =
   match typ with
-    | Tstruct (_, _) -> failwith "todo: add ctyp_of_mirtyp struct"
+    | Tstruct (struct_name, _) -> struct_name
     | Tborrow (_, _, _) -> failwith "todo: add ctyp_of_mirtyp borrow"
     | Tunit -> "void"
     | Ti32 -> "int32_t"
@@ -40,8 +40,14 @@ let emit_function_header fname mir oc =
 
 
 let emit_struct_typedef struct_decl oc =
-  let _ = (struct_decl, oc) in
-  failwith "todo"
+
+  Printf.fprintf oc "typedef struct {\n";
+  List.iter (
+    fun (field_name,field_type) ->
+      Printf.fprintf oc "    %s %s;\n" (ctyp_of_mirtyp field_type) field_name.id
+  ) struct_decl.sfields;
+
+  Printf.fprintf oc "} %s;\n\n" struct_decl.sname.id
 
 let emit_c prog output_file =
   let oc = open_out output_file in
@@ -50,15 +56,28 @@ let emit_c prog output_file =
   Printf.fprintf oc "#include <stdint.h>\n";
   Printf.fprintf oc "#include <stdbool.h>\n\n";
   
-  (* Emit headers and store bodies *)
+  (* Emit struct typedefs first*)
   Hashtbl.iter (fun _ decl ->
     match decl with
     | Dstruct d ->
         emit_struct_typedef d oc
-    | Dfundef fd -> 
-      let mir = Emit_minimir.emit_fun prog fd in 
-      emit_function_header fd.fname.id mir oc
+    | Dfundef _ ->  ()
   ) prog;
+
+  (* The emit functions prototypes after struct typedefs because we might need them *)
+  (* We do prototypes first and not function implementations directly because i don't want to deal with function order *)
+  let mir_bodies = Hashtbl.fold (fun _ decl acc ->
+    match decl with
+    | Dstruct _ -> acc
+    | Dfundef fd ->
+      let mir = Emit_minimir.emit_fun prog fd in 
+      emit_function_header fd.fname.id mir oc;
+    mir :: acc
+  ) prog [] in
+
+  let _ = mir_bodies in (*todo, function implem*)
+
+  
 
 
   (* TODO: emit bodies *)
