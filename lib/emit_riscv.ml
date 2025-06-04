@@ -3,6 +3,9 @@ open Ast
 
 let indent = "  "
 
+let string_of_instr instr =
+  Format.asprintf "%a" Print_minimir.pp_instr instr
+
 let _size_of_typ typ =
   match typ with
   | Tbool -> 1
@@ -27,6 +30,7 @@ let emit_function prog fundef mir_body oc =
     fun curr_lbl (instr, _)->
     (*TODO possible: preprocess quels labels vont etre utilisés pour ne generer que ceux la*)
     Printf.fprintf oc "L%d:\n" curr_lbl;
+    Printf.fprintf oc "%s# %s\n" indent (string_of_instr instr); (*Debug/lisibilité ou on met l'instruction minimir dans l'assembleur en commentaire*)
     match instr with
     | Iassign (_, RVunit, next_lbl) -> 
         if next_lbl = curr_lbl + 1 then
