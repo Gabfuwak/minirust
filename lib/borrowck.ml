@@ -87,7 +87,9 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
             unify_types typ_dest typ_src
         | RVborrow (_, borrowed_place) -> (
             match typ_of_place prog mir place_dest with
-            | Tborrow (dest_lft, _, _) -> 
+            | Tborrow (dest_lft, _, inner_type) -> 
+                let borrowed_type = typ_of_place prog mir borrowed_place in
+                unify_types inner_type borrowed_type;
                 LSet.iter (fun curr_lft -> add_outlives (curr_lft, dest_lft) ) (collect_borrow_lifetimes borrowed_place)
             | _ -> failwith "(borrowck) RVborrow n'a pas le type Tborrow (unreachable)"
         )
