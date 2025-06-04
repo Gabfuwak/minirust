@@ -155,10 +155,10 @@ let emit_struct_typedef struct_decl oc =
 
   Printf.fprintf oc "} %s;\n\n" struct_decl.sname.id
 
-let c_of_rvalue rval =
+let c_of_rvalue _rval =
   failwith "todo"
 
-let c_of_place pl =
+let c_of_place _pl =
   failwith "todo"
 
 let indent_of_scope scope = 
@@ -221,8 +221,6 @@ let emit_function_impl prog fundef mir_body oc =
         Printf.fprintf oc "%sgoto L%d;\n" (indent_of_scope !scope) else_lbl;
         scope := !scope - 1;
         Printf.fprintf  oc "%s}\n" (indent_of_scope !scope);
-        
-        
     | Ireturn ->
         let ret_type = Hashtbl.find mir_body.mlocals Lret in
         if ret_type = Tunit then
@@ -281,8 +279,6 @@ let emit_c prog output_file =
     fun (fundef, body) ->
       emit_function_impl prog fundef body oc
   ) mir_bodies;
-
-  let _ = mir_bodies in (*todo, function implem*)
 
   
 

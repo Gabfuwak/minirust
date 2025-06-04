@@ -26,8 +26,16 @@ let () =
       prog;
 
     (match output_file with 
-     | Some out -> Emit_c.emit_c prog out
-     | None -> ());
+     | Some out -> 
+         if Sys.getenv_opt "RISCV" <> None then
+           Emit_riscv.emit_riskv prog out
+         else  
+           Emit_c.emit_c prog out
+     | None -> 
+         if Sys.getenv_opt "RISCV" <> None then
+           Emit_riscv.emit_riskv prog "/dev/stdout"
+         else
+           ());
 
     ()
   with Error.Error (start, end_, msg) ->
