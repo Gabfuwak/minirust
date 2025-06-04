@@ -146,10 +146,6 @@ let emit_function_header fname mir oc =
   ()
 
   
-  
-
-  
-
 let emit_struct_typedef struct_decl oc =
   Printf.fprintf oc "typedef struct {\n";
   List.iter (
@@ -158,6 +154,44 @@ let emit_struct_typedef struct_decl oc =
   ) struct_decl.sfields;
 
   Printf.fprintf oc "} %s;\n\n" struct_decl.sname.id
+
+let c_of_rvalue rval =
+  failwith "todo"
+
+let emit_function_impl fundef mir_body oc = 
+  emit_function_header fundef.fname.id mir_body oc; (* On emit le header sans le ; pour s'eviter de la duplication de code*)
+  let scope = ref 0 in
+  Printf.fprintf oc "{\n";
+
+  (* emit definitions de locales *)
+  Hashtbl.iter (
+    fun local typ ->
+      match local with
+      | Lvar varid -> 
+        Printf.fprintf oc "%s %s;\n" (ctyp_of_mirtyp typ) (Printf.sprintf "_localvar%d" varid)
+      | _ -> ()
+  ) mir_body.mlocals;
+
+  Array.iter (
+    fun (instr,_)->
+    match instr with
+    | Iassign (pl_dest, rvalue, _) -> failwith "todo"
+    | Icall (name, args, retplace, func_lbl) -> failwith "todo"
+    | Igoto (lbl) -> failwith "todo"
+    | Iif (place_to_check, then_lbl, else_lbl) -> failwith "todo"
+    | Ireturn -> failwith "todo"
+    | Ideinit _ -> () (* rien a faire *)
+  
+
+  ) mir_body.minstrs;
+
+
+
+  Printf.fprintf oc "}\n\n";
+  ()
+  
+  
+
 
 let emit_c prog output_file =
   let oc = open_out output_file in
@@ -191,8 +225,15 @@ let emit_c prog output_file =
     | Dfundef fd ->
       let mir = Emit_minimir.emit_fun prog fd in 
       emit_function_header fd.fname.id mir oc;
-    mir :: acc
+      Printf.fprintf oc ";\n"; (* Je met ça la pour ne pas repeter de code dans l'emit de l'implementation de fonctions*)
+    (fd, mir) :: acc
   ) prog [] in
+
+
+  List.iter (
+    fun (fundef, body) ->
+      emit_function_impl fundef body oc
+  ) mir_bodies;
 
   let _ = mir_bodies in (*todo, function implem*)
 
