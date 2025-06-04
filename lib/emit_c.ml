@@ -158,31 +158,44 @@ let emit_struct_typedef struct_decl oc =
 let c_of_rvalue rval =
   failwith "todo"
 
+let indent_of_scope scope = 
+  String.make (scope * 4) ' '
+
 let emit_function_impl fundef mir_body oc = 
   emit_function_header fundef.fname.id mir_body oc; (* On emit le header sans le ; pour s'eviter de la duplication de code*)
   let scope = ref 0 in
   Printf.fprintf oc "{\n";
+  scope := !scope + 1;
 
   (* emit definitions de locales *)
   Hashtbl.iter (
     fun local typ ->
       match local with
       | Lvar varid -> 
-        Printf.fprintf oc "%s %s;\n" (ctyp_of_mirtyp typ) (Printf.sprintf "_localvar%d" varid)
+        Printf.fprintf oc "%s%s %s;\n" (indent_of_scope !scope) (ctyp_of_mirtyp typ) (Printf.sprintf "_localvar%d" varid)
+      | Lret -> 
+        if typ <> Tunit then
+          Printf.fprintf oc "%s%s _ret;" (indent_of_scope !scope) (ctyp_of_mirtyp typ)
       | _ -> ()
   ) mir_body.mlocals;
 
-  Array.iter (
-    fun (instr,_)->
+  Array.iteri (
+    fun curr_lbl (instr, _)->
+    (* Emit le label (note: j'aime pas faire ça comme ça, c'est de l'assembleur with extra steps, si ce commentaire reste dans le code final ma deception est immense et ma peine est inconsolable) *)
+    Printf.fprintf oc "L%d:\n" curr_lbl;
     match instr with
-    | Iassign (pl_dest, rvalue, _) -> failwith "todo"
-    | Icall (name, args, retplace, func_lbl) -> failwith "todo"
-    | Igoto (lbl) -> failwith "todo"
+    | Iassign (pl_dest, rval, next_lbl) -> failwith "todo"
+    | Icall (name, args, retplace, next_lbl) -> failwith "todo"
+    | Igoto (dest_lbl) -> 
+        Printf.fprintf oc "goto L%d;" dest_lbl
     | Iif (place_to_check, then_lbl, else_lbl) -> failwith "todo"
-    | Ireturn -> failwith "todo"
+    | Ireturn ->
+        let ret_type = Hashtbl.find mir_body.mlocals Lret in
+        if ret_type = Tunit then
+          Printf.fprintf oc "return;\n"
+        else
+          Printf.fprintf oc "return _ret;\n"
     | Ideinit _ -> () (* rien a faire *)
-  
-
   ) mir_body.minstrs;
 
 
