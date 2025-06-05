@@ -12,7 +12,7 @@ all:
 riscv:
 	@echo "=== Building $(FILE).rs → RISC-V ==="
 	RISCV=1 dune exec minirust/minirust.exe $(FILE).rs > $(FILE).s
-	$(AS) -march=rv32i -o $(FILE).o $(FILE).s
+	$(AS) -march=rv32im -o $(FILE).o $(FILE).s
 	$(LD) -o $(FILE) $(FILE).o
 	@echo "✓ Done: $(FILE)"
 	@echo "✓ Run: $(QEMU) ./$(FILE)"
