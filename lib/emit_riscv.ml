@@ -59,8 +59,7 @@ let emit_function prog fundef mir_body oc =
         Printf.fprintf oc ");\n";
 
     | Igoto (dest_lbl) -> 
-        ignore @@ failwith "todo";
-        Printf.fprintf oc "%sgoto L%d;\n" indent dest_lbl
+        Printf.fprintf oc "%sj L%d\n" indent dest_lbl
     | Iif (place_to_check, then_lbl, else_lbl) -> 
         ignore @@ failwith "todo";
         (* un peu overkill, ça pourrait se faire en une ligne mais je pense que ce sera plus simple pour faire de l'idiomatique ensuite comme ça *)
