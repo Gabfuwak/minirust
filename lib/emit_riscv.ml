@@ -22,6 +22,10 @@ let riscv_of_rvalue rval =
   | RVunit -> "" 
   | RVconst (Cbool true) -> "1"
   | RVconst (Cbool false) -> "0"
+  | RVconst (Ci32 a) ->
+      (* On enleve le suffixe i32 du litteral *)
+      let len = String.length a in
+      String.sub a 0 (len - 3)
   | _ -> failwith "todo"
 
 
@@ -37,7 +41,11 @@ let compute_all_offsets mir_body =
         current_offset := !current_offset + aligned_size;
         Hashtbl.add offset_table id (!current_offset)
     | Lparam _ -> () (* a0-a7, TODO: ajouter le calcul correct pour generer le cas avec plus de 8 paramètres *)
-    | Lret -> ()     (* a0 *)
+    | Lret ->
+        let size = size_of_typ typ in
+        let aligned_size = ((size + 3) / 4) * 4 in
+        current_offset := !current_offset + aligned_size;
+        Hashtbl.add offset_table (-1) (!current_offset) (* on met -1 comme id special pour la valeur de retour, on est sur que ça ne sera jamais pris *)
   ) mir_body.mlocals;
   
   (!current_offset, offset_table)
@@ -45,14 +53,15 @@ let compute_all_offsets mir_body =
 let riscv_of_place offset_table pl =
   match pl with
   | PlLocal (Lvar id) -> 
-    let offset = Hashtbl.find offset_table id in
-    Printf.sprintf "-%d(sp)" offset
+      let offset = Hashtbl.find offset_table id in
+      Printf.sprintf "-%d(sp)" offset
   | PlLocal (Lparam _name) -> 
-    "a0" (* TODO: mapping correct des paramètres *)
+      "a0" (* TODO: mapping correct des paramètres *)
   | PlLocal Lret -> 
-    "a0"
+      let offset = Hashtbl.find offset_table (-1) in
+      Printf.sprintf "-%d(sp)" offset
   | PlDeref _ -> failwith "todo"
-  | PlField _ ->  failwith "todo" (* Valeur de retour *)
+  | PlField _ ->  failwith "todo"
 
 let goto_next fundef oc curr_lbl next_lbl =
   if next_lbl = curr_lbl + 1 then
@@ -115,7 +124,7 @@ let emit_function prog fundef mir_body oc =
         if ret_type = Tunit then
           Printf.fprintf oc "%s# rien pour _ret = ()\n" indent
         else
-          failwith "todo"
+          Printf.fprintf oc "%slw a0, %s\n" indent (riscv_of_place offset_table (PlLocal Lret));
         ;
         Printf.fprintf oc "%saddi sp, sp, %d\n" indent frame_size; (* On rend la stack! *)
         Printf.fprintf oc "%sjr ra\n" indent 
