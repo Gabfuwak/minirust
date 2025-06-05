@@ -20,6 +20,8 @@ let size_of_typ typ =
 let riscv_of_rvalue rval =
   match rval with
   | RVunit -> "" 
+  | RVconst (Cbool true) -> "1"
+  | RVconst (Cbool false) -> "0"
   | _ -> failwith "todo"
 
 
@@ -51,7 +53,14 @@ let riscv_of_place offset_table pl =
     "a0"
   | PlDeref _ -> failwith "todo"
   | PlField _ ->  failwith "todo" (* Valeur de retour *)
-  
+
+let goto_next fundef oc curr_lbl next_lbl =
+  if next_lbl = curr_lbl + 1 then
+    () (* No-op, c'est séquentiel *)
+  else
+    (* Avec l'implementation actuelle de minimir je crois que ça devrait etre unreachable mais autant etre robuste *)
+    Printf.fprintf oc "%sj %s\n" indent (label_name fundef next_lbl) 
+
 let emit_function prog fundef mir_body oc = 
 
   let (_curr_offset, offset_table) = compute_all_offsets mir_body in
@@ -70,14 +79,11 @@ let emit_function prog fundef mir_body oc =
     Printf.fprintf oc "%s# %s\n" indent (string_of_instr instr); (*Debug/lisibilité ou on met l'instruction minimir dans l'assembleur en commentaire*)
     match instr with
     | Iassign (_, RVunit, next_lbl) -> 
-        if next_lbl = curr_lbl + 1 then
-          () (* No-op, c'est séquentiel *)
-        else
-          (* Avec l'implementation actuelle de minimir je crois que ça devrait etre unreachable mais autant etre robuste *)
-          Printf.fprintf oc "%sj %s\n" indent (label_name fundef next_lbl) 
-    | Iassign (pl_dest, rval, _) -> 
-        ignore @@ failwith "todo";
-        Printf.fprintf oc "%s%s = %s;\n" indent (riscv_of_place offset_table pl_dest) (riscv_of_rvalue rval);
+        goto_next fundef oc curr_lbl next_lbl
+    | Iassign (pl_dest, rval, next_lbl) -> 
+        Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue rval);
+        Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_place offset_table pl_dest);
+        goto_next fundef oc curr_lbl next_lbl
     | Icall (name, args, retplace, _) ->
         ignore @@ failwith "todo";
         Printf.fprintf oc "%s" indent;
