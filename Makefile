@@ -2,6 +2,9 @@ AS = riscv64-linux-gnu-as
 LD = riscv64-linux-gnu-ld -m elf32lriscv
 QEMU = qemu-riscv32
 
+RISCV_TESTS = $(wildcard backend_tests/*.rs)
+RISCV_NAMES = $(basename $(notdir $(RISCV_TESTS)))
+
 all:
 	dune build
 
@@ -18,8 +21,25 @@ run:
 	@$(MAKE) riscv FILE=$(FILE)
 	$(QEMU) ./$(FILE)
 
+
+test-riscv:
+	@echo "=== Running RISC-V backend tests ==="
+	@passed=0; total=0; \
+	for test in $(RISCV_NAMES); do \
+		total=$$((total + 1)); \
+		echo -n "Testing $$test... "; \
+		if $(MAKE) riscv FILE=backend_tests/$$test > /dev/null 2>&1; then \
+			echo "✓ PASS"; \
+			passed=$$((passed + 1)); \
+		else \
+			echo "✗ FAIL"; \
+		fi; \
+	done; \
+	echo "=== Results: $$passed/$$total tests passed ==="
+
 clean:
 	dune clean
-	rm -f tests/*.s tests/*.o tests/[0-9][0-9]
+	rm -f backend_tests/*.s backend_tests/*.o
+	cd backend_tests && rm -f $$(ls | grep -v '\.')
 
 .PHONY: all riscv run clean
