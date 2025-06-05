@@ -81,6 +81,10 @@ let emit_function prog fundef mir_body oc =
   (* allouer la stack *)
   Printf.fprintf oc "%saddi sp, sp, -%d\n" indent frame_size;
 
+  (* On stocke ra a la fin de la frame *)
+  (* Techniquement c'est une inneficience et on devrait verifier si la fonction fait des Icall mais en vrai c'est pas tres cher (maybe TODO quand j'en serais aux optis?) *)
+  Printf.fprintf oc "%ssw ra, %d(sp)\n" indent (frame_size - 4);
+
   Array.iteri (
     fun curr_lbl (instr, _)->
     (*TODO possible: preprocess quels labels vont etre utilisés pour ne generer que ceux la*)
@@ -93,22 +97,25 @@ let emit_function prog fundef mir_body oc =
         Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue rval);
         Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_place offset_table pl_dest);
         goto_next fundef oc curr_lbl next_lbl
-    | Icall (name, args, retplace, _) ->
-        ignore @@ failwith "todo";
-        Printf.fprintf oc "%s" indent;
-        let ret_type = typ_of_place prog mir_body retplace in
-        if ret_type <> Tunit then
-          Printf.fprintf oc "%s = " (riscv_of_place offset_table retplace) 
-        ;
-        Printf.fprintf oc "%s(" name;
+    | Icall (name, args, retplace, next_lbl) ->
         List.iteri (
           fun i arg_pl ->
-            if i < (List.length args) - 1 then
-              Printf.fprintf oc "%s, " (riscv_of_place offset_table arg_pl)
+            if i < 8 then(
+              Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_place offset_table arg_pl);
+              Printf.fprintf oc "%smv a%d, t0\n" indent i;
+            )
             else
-              Printf.fprintf oc "%s" (riscv_of_place offset_table arg_pl)
+              failwith "todo: store in stack"
         ) args;
-        Printf.fprintf oc ");\n";
+
+        Printf.fprintf oc "%sjal ra, %s\n" indent name;
+
+        (* Si c'etait une procedure on a rien a mettre dans a0 *)
+        let ret_type = typ_of_place prog mir_body retplace in
+        if ret_type <> Tunit then(
+          Printf.fprintf oc "%ssw a0, %s\n" indent (riscv_of_place offset_table retplace);
+        );
+        goto_next fundef oc curr_lbl next_lbl;
 
     | Igoto (dest_lbl) -> 
         Printf.fprintf oc "%sj %s\n" indent (label_name fundef dest_lbl)
@@ -126,6 +133,8 @@ let emit_function prog fundef mir_body oc =
         else
           Printf.fprintf oc "%slw a0, %s\n" indent (riscv_of_place offset_table (PlLocal Lret));
         ;
+
+        Printf.fprintf oc "%slw ra, %d(sp)\n" indent (frame_size - 4); (* On recupere le contexte dans ra *)
         Printf.fprintf oc "%saddi sp, sp, %d\n" indent frame_size; (* On rend la stack! *)
         Printf.fprintf oc "%sjr ra\n" indent 
     | Ideinit _ -> () (* rien a faire *)
