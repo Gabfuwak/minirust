@@ -289,10 +289,25 @@ let emit_function prog fundef mir_body oc =
             emit_assignment oc src_loc dst_loc
           ) struct_def.sfields args
      | RVborrow (_, borrowed_place) -> 
-          let borrowed_loc = location_of_place mir_body prog fundef offset_table borrowed_place in
           let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
+          (match borrowed_place with
+          | PlField(PlDeref(pointer_place), field_name) ->
+              (* Cas spécial : &( *ptr ).field *)
+              let ptr_loc = location_of_place mir_body prog fundef offset_table pointer_place in
 
-          emit_address_calculation oc borrowed_loc;
+              emit_load_to_register oc ptr_loc "t0"; (* Load l'adresse *)
+
+              let struct_name = match typ_of_place prog mir_body (PlDeref pointer_place) with
+                | Tstruct (name, _) -> name
+                | _ -> failwith "PlField on non-struct type (unreachable, caught by typechecker)"
+              in
+
+              let field_offset_val = field_offset prog struct_name field_name in
+              Printf.fprintf oc "%saddi t0, t0, %d\n" indent field_offset_val
+          | _ ->
+            let borrowed_loc = location_of_place mir_body prog fundef offset_table borrowed_place in
+            emit_address_calculation oc borrowed_loc
+          );
          
          (match dst_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
