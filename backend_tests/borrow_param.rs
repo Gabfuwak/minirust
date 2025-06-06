@@ -1,0 +1,11 @@
+fn get_value(r: &i32) -> i32 {
+    *r
+}
+
+fn test() -> i32 {
+    let x: i32 = 99i32;
+    let r: &i32 = &x;
+    get_value(r)
+}
+
+fn main() -> i32 { test() }
