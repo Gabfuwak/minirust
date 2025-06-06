@@ -4,13 +4,14 @@ open Ast
 let indent = "  "
 
 type riscv_location = 
-  | Reg of string      (* "a0", "a1", "t0" *)
-  | Stack of string    (* "-4(sp)", "60(sp)" *)
+  | ComputedStack of int  (* offset par rapport à sp *)
+  | ComputedReg of string * int (* nécessite génération de code, un peu dirty faute de meilleure idée *)
 
 let riscv_of_location loc =
   match loc with
-  | Reg s -> s
-  | Stack s -> s
+  | ComputedStack offset -> Printf.sprintf "%d(sp)" offset
+  | ComputedReg (reg, 0) -> reg (* Cas le plus simple, rien a aller chercher dans la stack *)
+  | ComputedReg _ -> failwith "todo: riscv_of_location ComputedReg"
 
 let label_name fundef lbl = 
   Printf.sprintf "%s_L%d" fundef.fname.id lbl
@@ -66,7 +67,7 @@ let location_of_place fundef offset_table pl =
   match pl with
   | PlLocal (Lvar id) -> 
       let offset = Hashtbl.find offset_table id in
-      Stack (Printf.sprintf "-%d(sp)" offset)
+      ComputedStack (-offset)
   | PlLocal (Lparam name) -> 
       let param_idx = (
         match List.find_index (fun (id, _, _) -> id.id = name) fundef.fformals with
@@ -76,14 +77,14 @@ let location_of_place fundef offset_table pl =
       in
 
       if param_idx < 8 then
-        Reg (Printf.sprintf "a%d" param_idx)
+        ComputedReg (Printf.sprintf "a%d" param_idx, 0)
       else
         let offset = Hashtbl.find offset_table (-param_idx) in
-        Stack (Printf.sprintf "%d(sp)" offset)
+        ComputedStack (-offset)
 
   | PlLocal Lret -> 
       let offset = Hashtbl.find offset_table (-1) in
-      Stack (Printf.sprintf "-%d(sp)" offset)
+      ComputedStack (-offset)
   | PlDeref _ -> failwith "todo riscv_of_place deref"
   | PlField _ ->  failwith "todo riscv_of_place field"
 
@@ -138,22 +139,22 @@ let emit_function prog fundef mir_body oc =
          let src_loc = location_of_place fundef offset_table src_place in
          let dst_loc = location_of_place fundef offset_table pl_dest in
          (match src_loc, dst_loc with
-          | Reg src, Reg dst -> 
-              Printf.fprintf oc "%smv %s, %s\n" indent dst src
-          | Reg src, Stack dst -> 
-              Printf.fprintf oc "%ssw %s, %s\n" indent src dst  
-          | Stack src, Reg dst -> 
-              Printf.fprintf oc "%slw %s, %s\n" indent dst src
-          | Stack src, Stack dst -> 
-              Printf.fprintf oc "%slw t0, %s\n" indent src;
-              Printf.fprintf oc "%ssw t0, %s\n" indent dst
+          | ComputedReg _, ComputedReg _ -> 
+              Printf.fprintf oc "%smv %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
+          | ComputedReg _, ComputedStack _ -> 
+              Printf.fprintf oc "%ssw %s, %s\n" indent (riscv_of_location src_loc) (riscv_of_location dst_loc)  
+          | ComputedStack _, ComputedReg _ -> 
+              Printf.fprintf oc "%slw %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
+          | ComputedStack _, ComputedStack _ -> 
+              Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc);
+              Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
          )
      | RVconst _ ->
          Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue fundef offset_table rval);
          let dst_loc = location_of_place fundef offset_table pl_dest in
          (match dst_loc with
-          | Reg dst -> Printf.fprintf oc "%smv %s, t0\n" indent dst
-          | Stack dst -> Printf.fprintf oc "%ssw t0, %s\n" indent dst
+          | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
+          | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
          )
      | RVunop (op, place) ->
          let src_loc = location_of_place fundef offset_table place in
@@ -161,8 +162,8 @@ let emit_function prog fundef mir_body oc =
          
           (* Pas la meme operation selon le type *)
          (match src_loc with
-          | Reg src -> Printf.fprintf oc "%smv t0, %s\n" indent src
-          | Stack src -> Printf.fprintf oc "%slw t0, %s\n" indent src
+          | ComputedReg _ -> Printf.fprintf oc "%smv t0, %s\n" indent (riscv_of_location src_loc)
+          | ComputedStack _ -> Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc)
          );
          
          (* Opération *)
@@ -172,8 +173,8 @@ let emit_function prog fundef mir_body oc =
          );
          
          (match dst_loc with
-          | Reg src -> Printf.fprintf oc "%smv %s, t0\n" indent src
-          | Stack src -> Printf.fprintf oc "%ssw t0, %s\n" indent src
+          | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
+          | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
          );
 
      | RVbinop (op, place1, place2) -> 
@@ -181,13 +182,13 @@ let emit_function prog fundef mir_body oc =
          let src_loc2 = location_of_place fundef offset_table place2 in
          let dst_loc = location_of_place fundef offset_table pl_dest in
          (match src_loc1 with
-          | Reg src -> Printf.fprintf oc "%smv t0, %s\n" indent src
-          | Stack src -> Printf.fprintf oc "%slw t0, %s\n" indent src
+          | ComputedReg _ -> Printf.fprintf oc "%smv t0, %s\n" indent (riscv_of_location src_loc1)
+          | ComputedStack _ -> Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc1)
          );
 
         (match src_loc2 with
-          | Reg src -> Printf.fprintf oc "%smv t1, %s\n" indent src
-          | Stack src -> Printf.fprintf oc "%slw t1, %s\n" indent src
+          | ComputedReg _ -> Printf.fprintf oc "%smv t1, %s\n" indent (riscv_of_location src_loc2)
+          | ComputedStack _ -> Printf.fprintf oc "%slw t1, %s\n" indent (riscv_of_location src_loc2)
           );
 
         (match op with
@@ -213,8 +214,8 @@ let emit_function prog fundef mir_body oc =
         );
 
         (match dst_loc with
-          | Reg src -> Printf.fprintf oc "%smv %s, t0\n" indent src
-          | Stack src -> Printf.fprintf oc "%ssw t0, %s\n" indent src
+          | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
+          | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
          );
 
           ()
