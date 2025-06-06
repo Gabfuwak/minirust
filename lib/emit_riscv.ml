@@ -177,9 +177,6 @@ let rec emit_assignment oc src_loc dst_loc =
    | _ -> failwith "emit_assignment: unsupported case"
   )
 
-
-
-
 let emit_address_calculation oc borrowed_loc =
   match borrowed_loc with
   | ComputedStack offset -> 
@@ -187,6 +184,22 @@ let emit_address_calculation oc borrowed_loc =
   | ComputedReg (reg, offset) | FieldAccess (reg, offset) ->
       Printf.fprintf oc "%saddi t0, %s, %d\n" indent reg offset
   | Indirect pointer_loc -> emit_load_to_register oc pointer_loc "t0"
+
+let rec emit_place_to_register oc mir_body prog fundef offset_table place target_reg =
+  match place with
+  | PlField(PlDeref(pointer_place), field_name) ->
+      (* Cas spécial : gérer ( *ptr ).field *)
+      emit_place_to_register oc mir_body prog fundef offset_table pointer_place target_reg;
+      let struct_name = match typ_of_place prog mir_body (PlDeref pointer_place) with
+        | Tstruct (name, _) -> name
+        | _ -> failwith "PlField on non-struct type"
+      in
+      let field_offset_val = field_offset prog struct_name field_name in
+      Printf.fprintf oc "%slw %s, %d(%s)\n" indent target_reg field_offset_val target_reg
+  | _ ->
+      let loc = location_of_place mir_body prog fundef offset_table place in
+      emit_load_to_register oc loc target_reg
+  
     
 let emit_function prog fundef mir_body oc = 
 
@@ -216,9 +229,25 @@ let emit_function prog fundef mir_body oc =
          ()
      | RVplace src_place ->
          (* Place → place : gestion registres/stack *)
-         let src_loc = location_of_place mir_body prog fundef offset_table src_place in
          let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
-         emit_assignment oc src_loc dst_loc
+         (match src_place with
+         | PlField(PlDeref(pointer_place), field_name) ->
+              emit_place_to_register oc mir_body prog fundef offset_table pointer_place "t0";
+
+              let struct_name = match typ_of_place prog mir_body (PlDeref pointer_place) with
+                | Tstruct (name, _) -> name
+                | _ -> failwith "PlField on non-struct type (unreachable, caught by typechecker)"
+              in
+
+              let field_offset_val = field_offset prog struct_name field_name in
+              (* Meme chose que pour RVborrow sauf qu'on veut la valeur pas l'adresse*)
+
+              Printf.fprintf oc "%slw t0, %d(t0)\n" indent field_offset_val;
+              emit_assignment oc (ComputedReg("t0", 0)) dst_loc          
+          | _ ->
+           let src_loc = location_of_place mir_body prog fundef offset_table src_place in
+           emit_assignment oc src_loc dst_loc
+          )
      | RVconst _ ->
          Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue prog mir_body fundef offset_table rval);
          let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
@@ -228,12 +257,10 @@ let emit_function prog fundef mir_body oc =
           | _ -> failwith "Iassign/RVconst: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
          )
      | RVunop (op, place) ->
-         let src_loc = location_of_place mir_body prog fundef offset_table place in
-         let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
-         
+        emit_place_to_register oc mir_body prog fundef offset_table place "t0";
+        let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
           (* Pas la meme operation selon le type *)
-          emit_load_to_register oc src_loc "t0";
-         
+
          (* Opération *)
          (match op with
           | Uneg -> Printf.fprintf oc "%ssub t0, zero, t0\n" indent
@@ -247,12 +274,10 @@ let emit_function prog fundef mir_body oc =
          );
 
      | RVbinop (op, place1, place2) -> 
-         let src_loc1 = location_of_place mir_body prog fundef offset_table place1 in
-         let src_loc2 = location_of_place mir_body prog fundef offset_table place2 in
          let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
           
-         emit_load_to_register oc src_loc1 "t0";
-         emit_load_to_register oc src_loc2 "t1";
+        emit_place_to_register oc mir_body prog fundef offset_table place1 "t0";
+        emit_place_to_register oc mir_body prog fundef offset_table place2 "t1";
 
         (match op with
          | Badd -> Printf.fprintf oc "%sadd t0, t0, t1\n" indent
@@ -295,9 +320,7 @@ let emit_function prog fundef mir_body oc =
           (match borrowed_place with
           | PlField(PlDeref(pointer_place), field_name) ->
               (* Cas spécial : &( *ptr ).field *)
-              let ptr_loc = location_of_place mir_body prog fundef offset_table pointer_place in
-
-              emit_load_to_register oc ptr_loc "t0"; (* Load l'adresse *)
+              emit_place_to_register oc mir_body prog fundef offset_table pointer_place "t0"; (* Load l'addresse *)
 
               let struct_name = match typ_of_place prog mir_body (PlDeref pointer_place) with
                 | Tstruct (name, _) -> name
@@ -328,7 +351,7 @@ let emit_function prog fundef mir_body oc =
                 let arg_loc = location_of_place mir_body prog fundef offset_table arg_pl in
                 emit_address_calculation oc arg_loc (* address dans t0 *)
             | _ ->  
-                Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table arg_pl));
+                emit_place_to_register oc mir_body prog fundef offset_table arg_pl "t0"
             );
             if i < 8 then(
                 Printf.fprintf oc "%smv a%d, t0\n" indent i;
@@ -350,7 +373,7 @@ let emit_function prog fundef mir_body oc =
         Printf.fprintf oc "%sj %s\n" indent (label_name fundef dest_lbl)
     | Iif (place_to_check, then_lbl, else_lbl) -> 
       (* Si la place n'est pas egale a 0, elle est true, et on jump au then. Sinon, on jump au else*)
-        Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table place_to_check));
+        emit_place_to_register oc mir_body prog fundef offset_table place_to_check "t0";
         Printf.fprintf oc "%sbne t0, zero, %s\n" indent (label_name fundef then_lbl);
         Printf.fprintf oc "%sj %s\n" indent (label_name fundef else_lbl);
         
