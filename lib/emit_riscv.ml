@@ -351,11 +351,55 @@ let emit_riskv prog output_file =
   Printf.fprintf oc "_start:\n";
   (* appel a la fonction main *)
   Printf.fprintf oc "%sjal ra, main\n\n" indent;
+  Printf.fprintf oc "%sjal ra, num_print\n" indent; (* On print l'output pour les unit tests *)
 
   (* System call exit *)
   Printf.fprintf oc "%sli a7, 93\n" indent;   
-  Printf.fprintf oc "%sli a0, 0\n" indent;   
+  Printf.fprintf oc "%sli a0, 0\n" indent; (* exit code 0 *)
   Printf.fprintf oc "%secall\n" indent;   
+
+  (* Fonction num_print adaptée de https://stackoverflow.com/questions/66941555/how-to-output-an-integer-to-screen-risc-v-assembly *)
+  Printf.fprintf oc "num_print:\n";
+  Printf.fprintf oc "%saddi sp, sp, -40\n" indent;
+  Printf.fprintf oc "%ssw s0, 32(sp)\n" indent;
+  Printf.fprintf oc "%saddi s0, sp, 40\n" indent;
+
+  Printf.fprintf oc "%saddi t0, zero, 0\n" indent;      (* sign_bit *)
+  Printf.fprintf oc "%saddi t1, zero, 10\n" indent;     (* divisor *)
+  Printf.fprintf oc "%saddi t2, s0, -16\n" indent;      (* string[n] *)
+  Printf.fprintf oc "%sadd a1, zero, t2\n" indent;      (* a1 = string[0] *)
+
+  Printf.fprintf oc "%saddi t3, zero, 10\n" indent;     (* '\\n' char *)
+  Printf.fprintf oc "%ssb t3, 0(a1)\n" indent;
+
+  Printf.fprintf oc "%sbge a0, zero, PVE\n" indent;
+  Printf.fprintf oc "%sxori a0, a0, -1\n" indent;
+  Printf.fprintf oc "%saddi a0, a0, 1\n" indent;
+  Printf.fprintf oc "%saddi t0, zero, 1\n" indent;
+
+  Printf.fprintf oc "PVE:\n";
+  Printf.fprintf oc "%srem t3, a0, t1\n" indent;
+  Printf.fprintf oc "%saddi t3, t3, 48\n" indent;
+  Printf.fprintf oc "%saddi a1, a1, -1\n" indent;
+  Printf.fprintf oc "%ssb t3, 0(a1)\n" indent;
+  Printf.fprintf oc "%sdiv a0, a0, t1\n" indent;
+  Printf.fprintf oc "%sblt zero, a0, PVE\n" indent;
+
+  Printf.fprintf oc "%sbeq t0, zero, print\n" indent;
+  Printf.fprintf oc "%saddi t3, zero, 45\n" indent;     (* '-' *)
+  Printf.fprintf oc "%saddi a1, a1, -1\n" indent;
+  Printf.fprintf oc "%ssb t3, 0(a1)\n" indent;
+
+  Printf.fprintf oc "print:\n";
+  Printf.fprintf oc "%ssub t4, t2, a1\n" indent;
+  Printf.fprintf oc "%saddi a2, t4, 1\n" indent;
+  Printf.fprintf oc "%saddi a0, zero, 1\n" indent;
+  Printf.fprintf oc "%saddi a7, zero, 64\n" indent;
+  Printf.fprintf oc "%secall\n" indent;
+
+  Printf.fprintf oc "%slw s0, 32(sp)\n" indent;
+  Printf.fprintf oc "%saddi sp, sp, 40\n" indent;
+  Printf.fprintf oc "%sret\n" indent;
 
 
   (* The emit functions prototypes after struct typedefs because we might need them *)

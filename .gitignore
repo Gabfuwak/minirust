@@ -2,3 +2,4 @@ _opam
 _build
 backend_tests/*
 !backend_tests/*.rs
+!backend_tests/*.expected

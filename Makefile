@@ -21,18 +21,30 @@ run:
 	@$(MAKE) riscv FILE=$(FILE)
 	$(QEMU) ./$(FILE)
 
-
 test-riscv:
 	@echo "=== Running RISC-V backend tests ==="
 	@passed=0; total=0; \
 	for test in $(RISCV_NAMES); do \
 		total=$$((total + 1)); \
 		echo -n "Testing $$test... "; \
-		if $(MAKE) riscv FILE=backend_tests/$$test > /dev/null 2>&1; then \
-			echo "✓ PASS"; \
-			passed=$$((passed + 1)); \
+		if [ -f backend_tests/$$test.expected ]; then \
+			expected=$$(cat backend_tests/$$test.expected); \
+			$(MAKE) riscv FILE=backend_tests/$$test > /dev/null 2>&1; \
+			actual=$$($(QEMU) ./backend_tests/$$test 2>/dev/null); \
+			if [ "$$actual" = "$$expected" ]; then \
+				echo "✓ PASS ($$expected)"; \
+				passed=$$((passed + 1)); \
+			else \
+				echo "✗ FAIL (expected '$$expected', got '$$actual')"; \
+			fi; \
 		else \
-			echo "✗ FAIL"; \
+			$(MAKE) riscv FILE=backend_tests/$$test > /dev/null 2>&1; \
+			if [ $$? -eq 0 ]; then \
+				echo "✓ PASS (compile only)"; \
+				passed=$$((passed + 1)); \
+			else \
+				echo "✗ FAIL (compile error)"; \
+			fi; \
 		fi; \
 	done; \
 	echo "=== Results: $$passed/$$total tests passed ==="
