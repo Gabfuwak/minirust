@@ -140,7 +140,7 @@ let rec emit_assignment oc src_loc dst_loc =
        Printf.fprintf oc "%ssw %s, %s\n" indent src_reg (riscv_of_location dst_loc)
    | ComputedReg (src_reg, offset), _ when offset != 0 ->
        Printf.fprintf oc "%slw t0, %d(%s)\n" indent offset src_reg;
-       (* Puis traiter t0 → dst_loc *)
+       (* Puis traiter t0 -> dst_loc *)
        emit_assignment oc (ComputedReg("t0", 0)) dst_loc
    | ComputedStack _, ComputedReg (dreg, 0) ->
        Printf.fprintf oc "%slw %s, %s\n" indent dreg (riscv_of_location src_loc)
