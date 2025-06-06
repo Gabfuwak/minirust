@@ -161,8 +161,8 @@ let rec emit_assignment oc src_loc dst_loc =
 
 let emit_function prog fundef mir_body oc = 
 
-  let (_curr_offset, offset_table) = compute_all_offsets prog fundef mir_body in
-  let frame_size = 64 in (*TODO: faire un vrai calcul*)
+  let (curr_offset, offset_table) = compute_all_offsets prog fundef mir_body in
+  let frame_size = max 64 (curr_offset + 16) in (* Pas de framze size dynamique donc pas d'allignement necessaire, juste 16 bytes de marge pour ra et un peu plus au cas ou*)
 
   (* emit definitions de locales Note: remplacer ça par autre chose?*)
   Printf.fprintf oc "%s:\n" fundef.fname.id;
