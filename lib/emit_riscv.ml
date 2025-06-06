@@ -131,6 +131,19 @@ let goto_next fundef oc curr_lbl next_lbl =
     (* Avec l'implementation actuelle de minimir je crois que ça devrait etre unreachable mais autant etre robuste *)
     Printf.fprintf oc "%sj %s\n" indent (label_name fundef next_lbl) 
 
+let emit_assignment oc src_loc dst_loc =
+     (match src_loc, dst_loc with
+      | ComputedReg _, ComputedReg _ -> 
+          Printf.fprintf oc "%smv %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
+      | ComputedReg _, ComputedStack _ -> 
+          Printf.fprintf oc "%ssw %s, %s\n" indent (riscv_of_location src_loc) (riscv_of_location dst_loc)  
+      | ComputedStack _, ComputedReg _ -> 
+          Printf.fprintf oc "%slw %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
+      | ComputedStack _, ComputedStack _ -> 
+          Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc);
+          Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
+     )
+
 let emit_function prog fundef mir_body oc = 
 
   let (_curr_offset, offset_table) = compute_all_offsets prog fundef mir_body in
@@ -161,17 +174,7 @@ let emit_function prog fundef mir_body oc =
          (* Place → place : gestion registres/stack *)
          let src_loc = location_of_place mir_body prog fundef offset_table src_place in
          let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
-         (match src_loc, dst_loc with
-          | ComputedReg _, ComputedReg _ -> 
-              Printf.fprintf oc "%smv %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
-          | ComputedReg _, ComputedStack _ -> 
-              Printf.fprintf oc "%ssw %s, %s\n" indent (riscv_of_location src_loc) (riscv_of_location dst_loc)  
-          | ComputedStack _, ComputedReg _ -> 
-              Printf.fprintf oc "%slw %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
-          | ComputedStack _, ComputedStack _ -> 
-              Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc);
-              Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
-         )
+         emit_assignment oc src_loc dst_loc
      | RVconst _ ->
          Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue prog mir_body fundef offset_table rval);
          let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
@@ -242,6 +245,13 @@ let emit_function prog fundef mir_body oc =
          );
 
           ()
+     | RVmake (struct_name, args) ->
+          let struct_def = get_struct_def prog struct_name in
+          List.iter2 (fun (field_id, _) src_place ->
+            let src_loc = location_of_place mir_body prog fundef offset_table src_place in
+            let dst_loc = location_of_place mir_body prog fundef offset_table (PlField(pl_dest, field_id.id)) in
+            emit_assignment oc src_loc dst_loc
+          ) struct_def.sfields args
      | _ -> failwith "todo: implement case for rvalue assign"
     );
     goto_next fundef oc curr_lbl next_lbl
