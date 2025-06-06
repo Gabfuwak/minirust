@@ -158,7 +158,7 @@ L11:
 }
 ```
 
-_Note: Right before starting the RISC-V extension, I considered doing a control flow graph analysis of the minimir code, before realising it was meaningless as I has an AST that I could get all the idiomatic structures from._
+_Note: Right before starting the RISC-V extension, I considered doing a control flow graph analysis of the minimir code, before realising it was meaningless as I had an AST that I could get all the idiomatic structures from._
 
 While this approach produces correct and compilable C code, the output lacks the idiomatic control flow structures that would make it readable and maintainable. This limitation motivated the development of a RISC-V backend.
 
