@@ -87,7 +87,6 @@ let location_of_place fundef offset_table pl =
   | PlDeref _ -> failwith "todo riscv_of_place deref"
   | PlField _ ->  failwith "todo riscv_of_place field"
 
-
 let riscv_of_rvalue fundef offset_table rval =
   match rval with
   | RVunit -> "" 
@@ -99,7 +98,7 @@ let riscv_of_rvalue fundef offset_table rval =
       String.sub a 0 (len - 3)
   | RVplace pl ->
       riscv_of_location (location_of_place fundef offset_table pl)
-  | _ -> failwith "todo: rvalue case"
+  | _ -> failwith "riscv_of_rvalue: complex operation, handle in Iassign"
 
 let goto_next fundef oc curr_lbl next_lbl =
   if next_lbl = curr_lbl + 1 then
@@ -149,14 +148,77 @@ let emit_function prog fundef mir_body oc =
               Printf.fprintf oc "%slw t0, %s\n" indent src;
               Printf.fprintf oc "%ssw t0, %s\n" indent dst
          )
-     | _ ->
-         (* Constantes → place : li + sw *)
+     | RVconst _ ->
          Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue fundef offset_table rval);
          let dst_loc = location_of_place fundef offset_table pl_dest in
          (match dst_loc with
           | Reg dst -> Printf.fprintf oc "%smv %s, t0\n" indent dst
           | Stack dst -> Printf.fprintf oc "%ssw t0, %s\n" indent dst
          )
+     | RVunop (op, place) ->
+         let src_loc = location_of_place fundef offset_table place in
+         let dst_loc = location_of_place fundef offset_table pl_dest in
+         
+          (* Pas la meme operation selon le type *)
+         (match src_loc with
+          | Reg src -> Printf.fprintf oc "%smv t0, %s\n" indent src
+          | Stack src -> Printf.fprintf oc "%slw t0, %s\n" indent src
+         );
+         
+         (* Opération *)
+         (match op with
+          | Uneg -> Printf.fprintf oc "%ssub t0, zero, t0\n" indent
+          | Unot -> Printf.fprintf oc "%sxori t0, t0, 1\n" indent
+         );
+         
+         (match dst_loc with
+          | Reg src -> Printf.fprintf oc "%smv %s, t0\n" indent src
+          | Stack src -> Printf.fprintf oc "%ssw t0, %s\n" indent src
+         );
+
+     | RVbinop (op, place1, place2) -> 
+         let src_loc1 = location_of_place fundef offset_table place1 in
+         let src_loc2 = location_of_place fundef offset_table place2 in
+         let dst_loc = location_of_place fundef offset_table pl_dest in
+         (match src_loc1 with
+          | Reg src -> Printf.fprintf oc "%smv t0, %s\n" indent src
+          | Stack src -> Printf.fprintf oc "%slw t0, %s\n" indent src
+         );
+
+        (match src_loc2 with
+          | Reg src -> Printf.fprintf oc "%smv t1, %s\n" indent src
+          | Stack src -> Printf.fprintf oc "%slw t1, %s\n" indent src
+          );
+
+        (match op with
+         | Badd -> Printf.fprintf oc "%sadd t0, t0, t1\n" indent
+         | Bsub -> Printf.fprintf oc "%ssub t0, t0, t1\n" indent
+         | Bmul -> Printf.fprintf oc "%smul t0, t0, t1\n" indent
+         | Bdiv -> Printf.fprintf oc "%sdiv t0, t0, t1\n" indent
+         | Bmod -> Printf.fprintf oc "%srem t0, t0, t1\n" indent
+         | Beqeq ->
+            Printf.fprintf oc "%sxor t0, t0, t1\n" indent;
+            Printf.fprintf oc "%sseqz t0, t0\n" indent
+         | Bneq -> 
+            Printf.fprintf oc "%sxor t0, t0, t1\n" indent;
+            Printf.fprintf oc "%ssnez t0, t0\n" indent
+         | Blt -> Printf.fprintf oc "%sslt t0, t0, t1\n" indent
+         | Bge -> 
+            Printf.fprintf oc "%sslt t0, t0, t1\n" indent;
+            Printf.fprintf oc "%sxori t0, t0, 1\n" indent
+         | Bgt -> Printf.fprintf oc "%sslt t0, t1, t0\n" indent
+         | Ble -> 
+            Printf.fprintf oc "%sslt t0, t1, t0\n" indent;
+            Printf.fprintf oc "%sxori t0, t0, 1\n" indent
+        );
+
+        (match dst_loc with
+          | Reg src -> Printf.fprintf oc "%smv %s, t0\n" indent src
+          | Stack src -> Printf.fprintf oc "%ssw t0, %s\n" indent src
+         );
+
+          ()
+     | _ -> ()
     );
     goto_next fundef oc curr_lbl next_lbl
 
