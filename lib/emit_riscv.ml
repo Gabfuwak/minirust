@@ -19,22 +19,34 @@ let label_name fundef lbl =
 let string_of_instr instr =
   Format.asprintf "%a" Print_minimir.pp_instr instr
 
-let size_of_typ typ =
+let rec size_of_typ prog typ =
   match typ with
   | Tbool -> 1
   | Tunit -> 0
   | Ti32 -> 4
-  | Tstruct (_, _) -> failwith "todo: size of struct"
+  | Tstruct (name, _) ->
+      let struct_def = get_struct_def prog name in
+      List.fold_left (fun acc (_, field_typ) ->
+        acc + size_of_typ  prog field_typ
+      ) 0 struct_def.sfields
   | Tborrow _ -> 4
 
-let compute_all_offsets fundef mir_body =
+let field_offset prog struct_name field_name =
+  let struct_def = get_struct_def prog struct_name in
+  let rec calc_offset acc = function
+    | [] -> failwith "field not found"
+    | (fname, _) :: _ when fname.id = field_name -> acc
+    | (_, ftyp) :: rest -> calc_offset (acc + size_of_typ prog ftyp) rest
+  in calc_offset 0 struct_def.sfields
+
+let compute_all_offsets prog fundef mir_body =
   let offset_table = Hashtbl.create 16 in
   let current_offset = ref 0 in
   
   Hashtbl.iter (fun local typ ->
     match local with
     | Lvar id ->
-        let size = size_of_typ typ in
+        let size = size_of_typ prog typ in
         let aligned_size = ((size + 3) / 4) * 4 in
         current_offset := !current_offset + aligned_size;
         Hashtbl.add offset_table id (!current_offset)
@@ -49,13 +61,13 @@ let compute_all_offsets fundef mir_body =
         if param_idx < 8 then
         ()
         else
-          let size = size_of_typ typ in
+          let size = size_of_typ prog typ in
           let aligned_size = ((size + 3) / 4) * 4 in
           current_offset := !current_offset + aligned_size;
           Hashtbl.add offset_table (-param_idx) (!current_offset) (* on met -idx, meme principe que pour Lret et en plus c'est simple a récuperer *)
 
     | Lret ->
-        let size = size_of_typ typ in
+        let size = size_of_typ prog typ in
         let aligned_size = ((size + 3) / 4) * 4 in
         current_offset := !current_offset + aligned_size;
         Hashtbl.add offset_table (-1) (!current_offset) (* on met -1 comme id special pour la valeur de retour, on est sur que ça ne sera jamais pris *)
@@ -63,7 +75,7 @@ let compute_all_offsets fundef mir_body =
   
   (!current_offset, offset_table)
 
-let location_of_place fundef offset_table pl =
+let rec location_of_place mir_body prog fundef offset_table pl =
   match pl with
   | PlLocal (Lvar id) -> 
       let offset = Hashtbl.find offset_table id in
@@ -86,9 +98,20 @@ let location_of_place fundef offset_table pl =
       let offset = Hashtbl.find offset_table (-1) in
       ComputedStack (-offset)
   | PlDeref _ -> failwith "todo riscv_of_place deref"
-  | PlField _ ->  failwith "todo riscv_of_place field"
+  | PlField (base_place, field_name) -> 
+      let base_loc = location_of_place mir_body prog fundef offset_table base_place in
+      let struct_name = match typ_of_place prog mir_body base_place with
+        | Tstruct (name, _) -> name
+        | _ -> failwith "PlField on non-struct type (unreachable, caught by typechecker)"
+      in
+      let field_offset_val = field_offset prog struct_name field_name in
+      (match base_loc with
+       | ComputedStack base_offset -> 
+           ComputedStack (base_offset + field_offset_val)
+       | _ -> failwith "todo: PlField only supported for stack locations for now"
+      )
 
-let riscv_of_rvalue fundef offset_table rval =
+let riscv_of_rvalue prog mir_body fundef offset_table rval =
   match rval with
   | RVunit -> "" 
   | RVconst (Cbool true) -> "1"
@@ -98,7 +121,7 @@ let riscv_of_rvalue fundef offset_table rval =
       let len = String.length a in
       String.sub a 0 (len - 3)
   | RVplace pl ->
-      riscv_of_location (location_of_place fundef offset_table pl)
+      riscv_of_location (location_of_place mir_body prog fundef offset_table pl)
   | _ -> failwith "riscv_of_rvalue: complex operation, handle in Iassign"
 
 let goto_next fundef oc curr_lbl next_lbl =
@@ -110,7 +133,7 @@ let goto_next fundef oc curr_lbl next_lbl =
 
 let emit_function prog fundef mir_body oc = 
 
-  let (_curr_offset, offset_table) = compute_all_offsets fundef mir_body in
+  let (_curr_offset, offset_table) = compute_all_offsets prog fundef mir_body in
   let frame_size = 64 in (*TODO: faire un vrai calcul*)
 
   (* emit definitions de locales Note: remplacer ça par autre chose?*)
@@ -136,8 +159,8 @@ let emit_function prog fundef mir_body oc =
          ()
      | RVplace src_place ->
          (* Place → place : gestion registres/stack *)
-         let src_loc = location_of_place fundef offset_table src_place in
-         let dst_loc = location_of_place fundef offset_table pl_dest in
+         let src_loc = location_of_place mir_body prog fundef offset_table src_place in
+         let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
          (match src_loc, dst_loc with
           | ComputedReg _, ComputedReg _ -> 
               Printf.fprintf oc "%smv %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
@@ -150,15 +173,15 @@ let emit_function prog fundef mir_body oc =
               Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
          )
      | RVconst _ ->
-         Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue fundef offset_table rval);
-         let dst_loc = location_of_place fundef offset_table pl_dest in
+         Printf.fprintf oc "%sli t0, %s\n" indent (riscv_of_rvalue prog mir_body fundef offset_table rval);
+         let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
          (match dst_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
           | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
          )
      | RVunop (op, place) ->
-         let src_loc = location_of_place fundef offset_table place in
-         let dst_loc = location_of_place fundef offset_table pl_dest in
+         let src_loc = location_of_place mir_body prog fundef offset_table place in
+         let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
          
           (* Pas la meme operation selon le type *)
          (match src_loc with
@@ -178,9 +201,9 @@ let emit_function prog fundef mir_body oc =
          );
 
      | RVbinop (op, place1, place2) -> 
-         let src_loc1 = location_of_place fundef offset_table place1 in
-         let src_loc2 = location_of_place fundef offset_table place2 in
-         let dst_loc = location_of_place fundef offset_table pl_dest in
+         let src_loc1 = location_of_place mir_body prog fundef offset_table place1 in
+         let src_loc2 = location_of_place mir_body prog fundef offset_table place2 in
+         let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
          (match src_loc1 with
           | ComputedReg _ -> Printf.fprintf oc "%smv t0, %s\n" indent (riscv_of_location src_loc1)
           | ComputedStack _ -> Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc1)
@@ -219,7 +242,7 @@ let emit_function prog fundef mir_body oc =
          );
 
           ()
-     | _ -> ()
+     | _ -> failwith "todo: implement case for rvalue assign"
     );
     goto_next fundef oc curr_lbl next_lbl
 
@@ -227,7 +250,7 @@ let emit_function prog fundef mir_body oc =
         List.iteri (
           fun i arg_pl ->
             if i < 8 then(
-              Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place fundef offset_table arg_pl));
+              Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table arg_pl));
               Printf.fprintf oc "%smv a%d, t0\n" indent i;
             )
             else
@@ -239,7 +262,7 @@ let emit_function prog fundef mir_body oc =
         (* Si c'etait une procedure on a rien a mettre dans a0 *)
         let ret_type = typ_of_place prog mir_body retplace in
         if ret_type <> Tunit then(
-          Printf.fprintf oc "%ssw a0, %s\n" indent (riscv_of_location (location_of_place fundef offset_table retplace));
+          Printf.fprintf oc "%ssw a0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table retplace));
         );
         goto_next fundef oc curr_lbl next_lbl;
 
@@ -247,7 +270,7 @@ let emit_function prog fundef mir_body oc =
         Printf.fprintf oc "%sj %s\n" indent (label_name fundef dest_lbl)
     | Iif (place_to_check, then_lbl, else_lbl) -> 
       (* Si la place n'est pas egale a 0, elle est true, et on jump au then. Sinon, on jump au else*)
-        Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place fundef offset_table place_to_check));
+        Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table place_to_check));
         Printf.fprintf oc "%sbne t0, zero, %s\n" indent (label_name fundef then_lbl);
         Printf.fprintf oc "%sj %s\n" indent (label_name fundef else_lbl);
         
@@ -257,7 +280,7 @@ let emit_function prog fundef mir_body oc =
         if ret_type = Tunit then
           Printf.fprintf oc "%s# rien pour _ret = ()\n" indent
         else
-          Printf.fprintf oc "%slw a0, %s\n" indent (riscv_of_location (location_of_place fundef offset_table (PlLocal Lret)));
+          Printf.fprintf oc "%slw a0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table (PlLocal Lret)));
         ;
 
         Printf.fprintf oc "%slw ra, %d(sp)\n" indent (frame_size - 4); (* On recupere le contexte dans ra *)
@@ -291,7 +314,7 @@ let emit_riskv prog output_file =
   (* The emit functions prototypes after struct typedefs because we might need them *)
   Hashtbl.iter (fun _ decl->
     match decl with
-    | Dstruct _ -> failwith "todo struct decl"
+    | Dstruct _ -> ()
     | Dfundef fd ->
       let mir = Emit_minimir.emit_fun prog fd in 
       emit_function prog fd mir oc;
