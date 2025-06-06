@@ -56,13 +56,16 @@ let go prog lft_sets mir : analysis_results =
           whose lifetime is dead at [next]. We filter them out here. *)
         go next
           (BSet.filter
-             (fun bor -> PpSet.mem (PpLocal next) (lft_sets (get_bor_info prog mir bor).blft))
+             (fun bor ->
+               PpSet.mem (PpLocal next) (lft_sets (get_bor_info prog mir bor).blft))
              state)
       in
 
       let assign pl state =
         (* When writing to a place, we de-activate any borrows of any of its sub-place. *)
-        BSet.filter (fun bor -> not (is_subplace (get_bor_info prog mir bor).bplace pl)) state
+        BSet.filter
+          (fun bor -> not (is_subplace (get_bor_info prog mir bor).bplace pl))
+          state
       in
 
       match fst mir.minstrs.(lbl) with

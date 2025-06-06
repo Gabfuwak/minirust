@@ -59,11 +59,7 @@ let go prog mir : analysis_results =
 
   (* Effect of using (copying or moving) a place [pl] on the abstract state [state]. *)
   let move_or_copy pl state =
-    if typ_is_copy prog (typ_of_place prog mir pl) then 
-      state
-    else
-      deinitialize pl state
-
+    if typ_is_copy prog (typ_of_place prog mir pl) then state else deinitialize pl state
   in
 
   (* These modules are parameters of the [Fix.DataFlow.ForIntSegment] functor below. *)
@@ -81,52 +77,46 @@ let go prog mir : analysis_results =
       similar data flow analysis. *)
 
     let foreach_root go =
-      
-      let initial_state = 
-        Hashtbl.fold (
-          fun local _ state -> 
+      let initial_state =
+        Hashtbl.fold
+          (fun local _ state ->
             match local with
-            | Lparam _ -> initialize (PlLocal local) state (* avec initialize on le retire de l'ensemble *)
-            | _ -> state
-        ) mir.mlocals all_places 
+            | Lparam _ ->
+                initialize (PlLocal local)
+                  state (* avec initialize on le retire de l'ensemble *)
+            | _ -> state)
+          mir.mlocals all_places
       in
 
       go mir.mentry initial_state
-      
-       
 
     let foreach_successor lbl state go =
-        let (instruction, _location) = mir.minstrs.(lbl) in
-        match instruction with
-          | Iassign (this_place, this_rv, next_label) ->
-              let new_state = (* On verifie si on doit move/copy la valeur de rv (si c'est une place) *)
-                match this_rv with
-                | RVplace p -> move_or_copy p state 
-                | _  -> state
-              in
-              let new_state = initialize this_place new_state in
-              go next_label new_state
-          | Ideinit (local, next_label) -> 
-              let new_state = deinitialize (PlLocal local) state in
-              go next_label new_state
-          | Igoto next_label -> 
-              go next_label state
-          | Iif (pl, next_label_if, next_label_else) -> 
-              (* Conctrement un if est un goto conditionnel, donc on crée 2 branches dans notre control flow graph *)
-              go next_label_if state;
-              go next_label_else state
-          | Ireturn -> () (* On a fini cette branche *)
-          | Icall (fname, params, return_place, next_label) -> 
-              let new_state = 
-                List.fold_left (
-                  fun state place -> move_or_copy place state
-                ) state params
-              in
-              let new_state = initialize return_place new_state in
-              go next_label new_state
-        
-
-        
+      let instruction, _location = mir.minstrs.(lbl) in
+      match instruction with
+      | Iassign (this_place, this_rv, next_label) ->
+          let new_state =
+            (* On verifie si on doit move/copy la valeur de rv (si c'est une place) *)
+            match this_rv with
+            | RVplace p -> move_or_copy p state
+            | _ -> state
+          in
+          let new_state = initialize this_place new_state in
+          go next_label new_state
+      | Ideinit (local, next_label) ->
+          let new_state = deinitialize (PlLocal local) state in
+          go next_label new_state
+      | Igoto next_label -> go next_label state
+      | Iif (pl, next_label_if, next_label_else) ->
+          (* Conctrement un if est un goto conditionnel, donc on crée 2 branches dans notre control flow graph *)
+          go next_label_if state;
+          go next_label_else state
+      | Ireturn -> () (* On a fini cette branche *)
+      | Icall (fname, params, return_place, next_label) ->
+          let new_state =
+            List.fold_left (fun state place -> move_or_copy place state) state params
+          in
+          let new_state = initialize return_place new_state in
+          go next_label new_state
   end in
   let module Fix = Fix.DataFlow.ForIntSegment (Instrs) (Prop) (Graph) in
   fun i -> Option.value (Fix.solution i) ~default:PlaceSet.empty

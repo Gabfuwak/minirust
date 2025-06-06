@@ -55,7 +55,8 @@ val fields_types_fresh : Ast.program -> string -> full_typ list * full_typ
 (** Given a {v struct v} identifier, instantiate this {v struct v} with fresh lifetime variables, then
     returns the (substituted) type of its fields, and the (substituted) {v struct v} type. *)
 
-val fn_prototype_fresh : Ast.program -> string -> full_typ list * full_typ * (lifetime * lifetime) list
+val fn_prototype_fresh :
+  Ast.program -> string -> full_typ list * full_typ * (lifetime * lifetime) list
 (** Given a function identifier, instantiate its prototype with fresh lifetime variables,
     then returns the (substituted) types of its parameters, its (substituted) return type,
     and the list of its (substituted) outlives constraints. *)

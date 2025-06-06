@@ -171,7 +171,9 @@ let emit_fun prog fd =
             translate_expr env (Some (PlLocal tmp)) next e2)
     | Econstr_stru (id, flds) ->
         let next, dest = get_dest () in
-        let _, next, k, pls = translate_exprs_to_pls env [ dest ] (List.map snd flds) next in
+        let _, next, k, pls =
+          translate_exprs_to_pls env [ dest ] (List.map snd flds) next
+        in
         let idpls = List.map2 (fun (id, _) pl -> id.id, pl) flds pls in
         let fields_def = (get_struct_def prog id.id).sfields in
         let pls = List.map (fun (id, _) -> List.assoc id.id idpls) fields_def in

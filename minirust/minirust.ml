@@ -12,30 +12,26 @@ let () =
 
     Hashtbl.iter
       (fun _ d ->
-         match d with
-         | Dfundef fd ->
-           let mir = Emit_minimir.emit_fun prog fd in
+        match d with
+        | Dfundef fd ->
+            let mir = Emit_minimir.emit_fun prog fd in
 
-           if Sys.getenv_opt "MINIMIR" <> None then (
-             Printf.printf "=== %s ===\n" fd.fname.id;
-             Print_minimir.print mir;
-             Printf.printf "\n");
+            if Sys.getenv_opt "MINIMIR" <> None then (
+              Printf.printf "=== %s ===\n" fd.fname.id;
+              Print_minimir.print mir;
+              Printf.printf "\n");
 
-           Borrowck.borrowck prog mir
-         | _ -> ())
+            Borrowck.borrowck prog mir
+        | _ -> ())
       prog;
 
-    (match output_file with 
-     | Some out -> 
-         if Sys.getenv_opt "RISCV" <> None then
-           Emit_riscv.emit_riskv prog out
-         else  
-           Emit_c.emit_c prog out
-     | None -> 
-         if Sys.getenv_opt "RISCV" <> None then
-           Emit_riscv.emit_riskv prog "/dev/stdout"
-         else
-           ());
+    (match output_file with
+    | Some out ->
+        if Sys.getenv_opt "RISCV" <> None then Emit_riscv.emit_riskv prog out
+        else Emit_c.emit_c prog out
+    | None ->
+        if Sys.getenv_opt "RISCV" <> None then Emit_riscv.emit_riskv prog "/dev/stdout"
+        else ());
 
     ()
   with Error.Error (start, end_, msg) ->

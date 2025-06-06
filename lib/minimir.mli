@@ -25,8 +25,7 @@ type place =
   | PlField of place * string  (** or a field access. *)
 
 (** It is guaranteed that a MiniMir instruction does not refer twice to the same local
-    variable.
-    Such an instruction can be...*)
+    variable. Such an instruction can be...*)
 type instr =
   | Iassign of place * rvalue * label
       (** an assignment to a place, from an right-value (see below), *)

@@ -3,8 +3,7 @@ module Fix = Fix.Fix.ForType (struct type t = int end) (Fix.Prop.Set (LocSet))
 
 type analysis_results = label -> LocSet.t
 
-let add_place pl live =
-  LocSet.add (local_of_place pl) live
+let add_place pl live = LocSet.add (local_of_place pl) live
 
 let go mir : analysis_results =
   Fix.lfp (fun lbl live ->
@@ -12,9 +11,7 @@ let go mir : analysis_results =
       | Iassign (pl, rv, next) -> (
           let live = live next in
           let live = match pl with PlLocal l -> LocSet.remove l live | _ -> live in
-          let live =
-            if contains_deref_borrow pl then add_place pl live else live
-          in
+          let live = if contains_deref_borrow pl then add_place pl live else live in
           match rv with
           | RVplace pl | RVborrow (_, pl) -> add_place pl live
           | RVconst _ | RVunit -> live

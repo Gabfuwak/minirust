@@ -8,7 +8,6 @@ open Active_borrows
 
 (* This function computes the set of alive lifetimes at every program point. *)
 let compute_lft_sets prog mir : lifetime -> PpSet.t =
-
   (* The [outlives] variable contains all the outlives relations between the
     lifetime variables of the function. *)
   let outlives = ref LMap.empty in
@@ -40,91 +39,86 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
 
     SUGGESTION: use functions [typ_of_place], [fields_types_fresh] and [fn_prototype_fresh].
   *)
-
-
-  let rec collect_borrow_lifetimes_aux pl acc = 
+  let rec collect_borrow_lifetimes_aux pl acc =
     match pl with
-    | PlDeref borrowed_place ->(
+    | PlDeref borrowed_place -> (
         match typ_of_place prog mir borrowed_place with
-        | Tborrow (borrow_lifetime, _, _) -> collect_borrow_lifetimes_aux borrowed_place (LSet.add borrow_lifetime acc)
-        | _ -> failwith "(borrowck) Erreur: dereferencement d'un non-emprunt"
-    )
+        | Tborrow (borrow_lifetime, _, _) ->
+            collect_borrow_lifetimes_aux borrowed_place (LSet.add borrow_lifetime acc)
+        | _ -> failwith "(borrowck) Erreur: dereferencement d'un non-emprunt")
     | PlField (pl, _) -> collect_borrow_lifetimes_aux pl acc
-    | PlLocal _  -> acc
-  in
-    
-  let collect_borrow_lifetimes pl = 
-    collect_borrow_lifetimes_aux pl (LSet.empty)
+    | PlLocal _ -> acc
   in
 
-  let rec unify_types typ1 typ2 = 
-  match typ1, typ2 with
-  | Tstruct (name1, elem_lifetimes1), Tstruct (name2, elem_lifetimes2) ->
-      if name1 = name2 then
-        List.iter2 (fun lifetime1 lifetime2 -> unify_lft lifetime1 lifetime2) elem_lifetimes1 elem_lifetimes2
-      else
-        failwith "(borrowck) Structs impossible a unifier. (devrait etre unreachable)"
-  | Tborrow (lft1, mut1, typ1), Tborrow (lft2, mut2, typ2) -> 
-      if mut1 = mut2 then(
-        unify_types typ1 typ2;
-        unify_lft lft1 lft2;
-      )
-      else
-        failwith "(borrowck) Borrows impossible a unifier. (devrait etre unreachable)"
-  | Tunit, Tunit | Ti32, Ti32 | Tbool, Tbool -> () (* pas de durées de vie a unifier.. *)
-  | _, _ -> 
-        failwith "(borrowck) Types incompatibles impossible a unifier. (devrait etre unreachable)"
+  let collect_borrow_lifetimes pl = collect_borrow_lifetimes_aux pl LSet.empty in
+
+  let rec unify_types typ1 typ2 =
+    match typ1, typ2 with
+    | Tstruct (name1, elem_lifetimes1), Tstruct (name2, elem_lifetimes2) ->
+        if name1 = name2 then
+          List.iter2
+            (fun lifetime1 lifetime2 -> unify_lft lifetime1 lifetime2)
+            elem_lifetimes1 elem_lifetimes2
+        else
+          failwith "(borrowck) Structs impossible a unifier. (devrait etre unreachable)"
+    | Tborrow (lft1, mut1, typ1), Tborrow (lft2, mut2, typ2) ->
+        if mut1 = mut2 then (
+          unify_types typ1 typ2;
+          unify_lft lft1 lft2)
+        else
+          failwith "(borrowck) Borrows impossible a unifier. (devrait etre unreachable)"
+    | Tunit, Tunit | Ti32, Ti32 | Tbool, Tbool ->
+        () (* pas de durées de vie a unifier.. *)
+    | _, _ ->
+        failwith
+          "(borrowck) Types incompatibles impossible a unifier. (devrait etre \
+           unreachable)"
   in
 
   Array.iteri
-  (fun lbl (instr, loc) ->
-    match instr with
-    | Iassign (place_dest, rv, this_lbl) ->(
-        match rv with
-        | RVplace place_src -> 
-            let typ_dest = typ_of_place prog mir place_dest in
-            let typ_src = typ_of_place prog mir place_src in
-            unify_types typ_dest typ_src
-        | RVborrow (_, borrowed_place) -> (
-            match typ_of_place prog mir place_dest with
-            | Tborrow (dest_lft, _, inner_type) -> 
-                let borrowed_type = typ_of_place prog mir borrowed_place in
-                unify_types inner_type borrowed_type;
-                LSet.iter (fun curr_lft -> add_outlives (curr_lft, dest_lft) ) (collect_borrow_lifetimes borrowed_place)
-            | _ -> failwith "(borrowck) RVborrow n'a pas le type Tborrow (unreachable)"
-        )
-        | RVmake (struct_name, struct_fields) -> 
-            (
-            match fields_types_fresh prog struct_name with
-            | proto_fields_types, proto_struct_type -> 
-                let typ_dest = typ_of_place prog mir place_dest in
-                unify_types typ_dest proto_struct_type;
-                List.iter2 (
-                  fun struct_field proto_field_type ->
-                    let struct_field_type = typ_of_place prog mir struct_field in
-                    unify_types struct_field_type proto_field_type
-                ) struct_fields proto_fields_types
-            )
-        | RVunop _ | RVbinop _| RVconst _ | RVunit -> ()
-        ) 
-    | Icall (name, args, retplace, func_lbl) -> 
-        (
-        match fn_prototype_fresh prog name with
-        | proto_arg_types, proto_return_type, func_constraints -> 
-            List.iter ( fun curr_c -> add_outlives curr_c ) func_constraints;
-            
-            let ret_typ = typ_of_place prog mir retplace in
-            unify_types ret_typ proto_return_type;
+    (fun lbl (instr, loc) ->
+      match instr with
+      | Iassign (place_dest, rv, this_lbl) -> (
+          match rv with
+          | RVplace place_src ->
+              let typ_dest = typ_of_place prog mir place_dest in
+              let typ_src = typ_of_place prog mir place_src in
+              unify_types typ_dest typ_src
+          | RVborrow (_, borrowed_place) -> (
+              match typ_of_place prog mir place_dest with
+              | Tborrow (dest_lft, _, inner_type) ->
+                  let borrowed_type = typ_of_place prog mir borrowed_place in
+                  unify_types inner_type borrowed_type;
+                  LSet.iter
+                    (fun curr_lft -> add_outlives (curr_lft, dest_lft))
+                    (collect_borrow_lifetimes borrowed_place)
+              | _ -> failwith "(borrowck) RVborrow n'a pas le type Tborrow (unreachable)")
+          | RVmake (struct_name, struct_fields) -> (
+              match fields_types_fresh prog struct_name with
+              | proto_fields_types, proto_struct_type ->
+                  let typ_dest = typ_of_place prog mir place_dest in
+                  unify_types typ_dest proto_struct_type;
+                  List.iter2
+                    (fun struct_field proto_field_type ->
+                      let struct_field_type = typ_of_place prog mir struct_field in
+                      unify_types struct_field_type proto_field_type)
+                    struct_fields proto_fields_types)
+          | RVunop _ | RVbinop _ | RVconst _ | RVunit -> ())
+      | Icall (name, args, retplace, func_lbl) -> (
+          match fn_prototype_fresh prog name with
+          | proto_arg_types, proto_return_type, func_constraints ->
+              List.iter (fun curr_c -> add_outlives curr_c) func_constraints;
 
-            List.iter2 (
-              fun arg prototype_arg_type -> 
-                let arg_type = typ_of_place prog mir arg in
-                unify_types arg_type prototype_arg_type
-            ) args proto_arg_types;
-        )
-    | Ideinit _ | Igoto _ | Iif _ | Ireturn -> ()
-    )
-  mir.minstrs;
+              let ret_typ = typ_of_place prog mir retplace in
+              unify_types ret_typ proto_return_type;
+
+              List.iter2
+                (fun arg prototype_arg_type ->
+                  let arg_type = typ_of_place prog mir arg in
+                  unify_types arg_type prototype_arg_type)
+                args proto_arg_types)
+      | Ideinit _ | Igoto _ | Iif _ | Ireturn -> ())
+    mir.minstrs;
 
   (* The [living] variable contains constraints of the form "lifetime 'a should be
     alive at program point p". *)
@@ -149,30 +143,23 @@ let compute_lft_sets prog mir : lifetime -> PpSet.t =
        (those in [mir.mgeneric_lfts]) should be alive during the whole execution of the
        function.
   *)
-
   Array.iteri
     (fun lbl _ ->
       let live_at_point = live_locals lbl in
-      
-      LocSet.iter 
+
+      LocSet.iter
         (fun loc ->
           let typ = Hashtbl.find mir.mlocals loc in
-          
+
           let lifetimes = free_lfts typ in
-          
-          LSet.iter
-            (fun lft -> add_living (PpLocal lbl) lft)
-            lifetimes)
-        live_at_point
-  ) mir.minstrs;
+
+          LSet.iter (fun lft -> add_living (PpLocal lbl) lft) lifetimes)
+        live_at_point)
+    mir.minstrs;
 
   List.iter
-    (fun lft ->
-      Array.iteri
-        (fun lbl _ -> add_living (PpLocal lbl) lft)
-        mir.minstrs
-  ) mir.mgeneric_lfts;
-
+    (fun lft -> Array.iteri (fun lbl _ -> add_living (PpLocal lbl) lft) mir.minstrs)
+    mir.mgeneric_lfts;
 
   (* If [lft] is a generic lifetime, [lft] is always alive at [PpInCaller lft]. *)
   List.iter (fun lft -> add_living (PpInCaller lft) lft) mir.mgeneric_lfts;
@@ -230,22 +217,19 @@ let borrowck prog mir =
       (* TODO (DONE): check that we never write to shared borrows, and that we never create mutable borrows
         below shared borrows. Function [place_mut] can be used to determine if a place is mutable, i.e., if it
         does not dereference a shared borrow. *)
-        match instr with
-        | Iassign (_, RVborrow (Mut, borrowed_place), _) ->
-            let mutability = place_mut prog mir borrowed_place in
-            if mutability = NotMut then
-              Error.error loc "Cannot create a mutable borrow of a shared borrow"
-            else
-              ()
-        | Icall (_, _, place_dest, _) | Iassign (place_dest, _, _) -> 
-            let mutability = place_mut prog mir place_dest in
-            if mutability = NotMut then
-              Error.error loc "Tried to write a value to a shared borrow" (* Si je comprends bien, les places immutables sont toujours dans des shared borrows *)
-            else
-              ()
-            
-        | _ -> ()
-    )
+      match instr with
+      | Iassign (_, RVborrow (Mut, borrowed_place), _) ->
+          let mutability = place_mut prog mir borrowed_place in
+          if mutability = NotMut then
+            Error.error loc "Cannot create a mutable borrow of a shared borrow"
+          else ()
+      | Icall (_, _, place_dest, _) | Iassign (place_dest, _, _) ->
+          let mutability = place_mut prog mir place_dest in
+          if mutability = NotMut then
+            Error.error loc "Tried to write a value to a shared borrow"
+            (* Si je comprends bien, les places immutables sont toujours dans des shared borrows *)
+          else ()
+      | _ -> ())
     mir.minstrs;
 
   let lft_sets = compute_lft_sets prog mir in
@@ -254,29 +238,33 @@ let borrowck prog mir =
     enough to ensure safety. I.e., if [lft_sets lft] contains program point [PpInCaller lft'], this
     means that we need that [lft] be alive when [lft'] dies, i.e., [lft'] outlives [lft]. This relation
     has to be declared in [mir.outlives_graph]. *)
-  List.iter (
-    fun lft -> 
+  List.iter
+    (fun lft ->
       let valid_points = lft_sets lft in
-      PpSet.iter(
-        fun point ->
+      PpSet.iter
+        (fun point ->
           match point with
           | PpInCaller lft' -> (
-              if List.mem lft mir.mgeneric_lfts && List.mem lft' mir.mgeneric_lfts && lft <> lft' then (
+              if
+                List.mem lft mir.mgeneric_lfts
+                && List.mem lft' mir.mgeneric_lfts
+                && lft <> lft'
+              then
                 match LMap.find_opt lft mir.moutlives_graph with
                 | None ->
-                    Error.error mir.mloc 
-                    "Missing outlives constraint in function prototype: '%s' should outlive '%s'"
-                    (string_of_lft lft) (string_of_lft lft')
-          | Some lifetime_set ->
+                    Error.error mir.mloc
+                      "Missing outlives constraint in function prototype: '%s' should \
+                       outlive '%s'"
+                      (string_of_lft lft) (string_of_lft lft')
+                | Some lifetime_set ->
                     if not (LSet.mem lft' lifetime_set) then
-                    Error.error mir.mloc 
-                    "Missing outlives constraint in function prototype: '%s' should outlive '%s'"
-                    (string_of_lft lft) (string_of_lft lft')
-              )
-          )
-          | _ -> ()
-      ) valid_points
-  ) mir.mgeneric_lfts;
+                      Error.error mir.mloc
+                        "Missing outlives constraint in function prototype: '%s' should \
+                         outlive '%s'"
+                        (string_of_lft lft) (string_of_lft lft'))
+          | _ -> ())
+        valid_points)
+    mir.mgeneric_lfts;
 
   (* We check that we never perform any operation which would conflict with an existing
     borrows. *)
@@ -355,23 +343,13 @@ let borrowck prog mir =
       | Iassign (_, RVborrow (mut, pl), _) ->
           if conflicting_borrow (mut = Mut) pl then
             Error.error loc "There is a borrow conflicting this borrow."
-      | Iassign (_, RVbinop(_, pl1, pl2), _) -> 
+      | Iassign (_, RVbinop (_, pl1, pl2), _) ->
           check_use pl1;
           check_use pl2
-      | Iassign (_, RVmake(_, pls), _) -> 
-          List.iter(
-            fun pl ->
-              check_use pl
-          )pls
-      | Iassign (_, RVplace pl , _) -> 
-          check_use pl
-      | Icall (_, param_pls, _, _) ->
-          List.iter(
-            fun pl ->
-              check_use pl
-          )param_pls
+      | Iassign (_, RVmake (_, pls), _) -> List.iter (fun pl -> check_use pl) pls
+      | Iassign (_, RVplace pl, _) -> check_use pl
+      | Icall (_, param_pls, _, _) -> List.iter (fun pl -> check_use pl) param_pls
       | Iif (pl, _, _) -> check_use pl
       | Ireturn -> check_use (PlLocal Lret)
-      | Iassign _ | Ideinit _ | Igoto _ -> ()
-    )
+      | Iassign _ | Ideinit _ | Igoto _ -> ())
     mir.minstrs

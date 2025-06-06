@@ -6,5 +6,5 @@
  (modules lexer))
 
 (library
-  (name minirust)
-  (libraries menhirLib fix))
+ (name minirust)
+ (libraries menhirLib fix))
