@@ -11,7 +11,7 @@ let riscv_of_location loc =
   match loc with
   | ComputedStack offset -> Printf.sprintf "%d(sp)" offset
   | ComputedReg (reg, 0) -> reg (* Cas le plus simple, rien a aller chercher dans la stack *)
-  | ComputedReg _ -> failwith "todo: riscv_of_location ComputedReg"
+  | ComputedReg (reg, offset) -> Printf.sprintf "%d(%s)" offset reg
 
 let label_name fundef lbl = 
   Printf.sprintf "%s_L%d" fundef.fname.id lbl
@@ -108,7 +108,8 @@ let rec location_of_place mir_body prog fundef offset_table pl =
       (match base_loc with
        | ComputedStack base_offset -> 
            ComputedStack (base_offset + field_offset_val)
-       | _ -> failwith "todo: PlField only supported for stack locations for now"
+       | ComputedReg (reg, base_offset)-> 
+          ComputedReg (reg, base_offset + field_offset_val)
       )
 
 let riscv_of_rvalue prog mir_body fundef offset_table rval =
@@ -131,18 +132,23 @@ let goto_next fundef oc curr_lbl next_lbl =
     (* Avec l'implementation actuelle de minimir je crois que ça devrait etre unreachable mais autant etre robuste *)
     Printf.fprintf oc "%sj %s\n" indent (label_name fundef next_lbl) 
 
-let emit_assignment oc src_loc dst_loc =
-     (match src_loc, dst_loc with
-      | ComputedReg _, ComputedReg _ -> 
-          Printf.fprintf oc "%smv %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
-      | ComputedReg _, ComputedStack _ -> 
-          Printf.fprintf oc "%ssw %s, %s\n" indent (riscv_of_location src_loc) (riscv_of_location dst_loc)  
-      | ComputedStack _, ComputedReg _ -> 
-          Printf.fprintf oc "%slw %s, %s\n" indent (riscv_of_location dst_loc) (riscv_of_location src_loc)
-      | ComputedStack _, ComputedStack _ -> 
-          Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc);
-          Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
-     )
+let rec emit_assignment oc src_loc dst_loc =
+  (match src_loc, dst_loc with
+   | ComputedReg (src_reg, 0), ComputedReg (dst_reg, 0) ->
+       Printf.fprintf oc "%smv %s, %s\n" indent dst_reg src_reg
+   | ComputedReg (src_reg, 0), ComputedStack _ ->
+       Printf.fprintf oc "%ssw %s, %s\n" indent src_reg (riscv_of_location dst_loc)
+   | ComputedReg (src_reg, offset), _ when offset != 0 ->
+       Printf.fprintf oc "%slw t0, %d(%s)\n" indent offset src_reg;
+       (* Puis traiter t0 → dst_loc *)
+       emit_assignment oc (ComputedReg("t0", 0)) dst_loc
+   | ComputedStack _, ComputedReg (dreg, 0) ->
+       Printf.fprintf oc "%slw %s, %s\n" indent dreg (riscv_of_location src_loc)
+   | ComputedStack _, ComputedStack _ ->
+       Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc);
+       Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
+   | _ -> failwith "emit_assignment: unsupported case"
+  )
 
 let emit_function prog fundef mir_body oc = 
 
