@@ -1,4 +1,4 @@
-fn get_value(r: &i32) -> i32 {
+fn get_value<'a>(r: &'a i32) -> i32 {
     *r
 }
 
