@@ -7,13 +7,14 @@ type riscv_location =
   | ComputedStack of int  (* offset par rapport à sp *)
   | ComputedReg of string * int (* nécessite génération de code, un peu dirty faute de meilleure idée *)
   | Indirect of riscv_location
+  | FieldAccess of string * int (* Meme chose que ComputedReg, sauf que si l'offset est 0 dans computedreg on prend ça comme une lecture de registre, mais pas ici*)
 
 let riscv_of_location loc =
   match loc with
   | ComputedStack offset -> Printf.sprintf "%d(sp)" offset
   | ComputedReg (reg, 0) -> reg (* Cas le plus simple, rien a aller chercher dans la stack *)
   | ComputedReg (reg, offset) -> Printf.sprintf "%d(%s)" offset reg
-  | Indirect _ -> failwith "riscv_of_location: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+  | _ -> failwith "riscv_of_location: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
 
 let label_name fundef lbl = 
   Printf.sprintf "%s_L%d" fundef.fname.id lbl
@@ -113,8 +114,8 @@ let rec location_of_place mir_body prog fundef offset_table pl =
        | ComputedStack base_offset -> 
            ComputedStack (base_offset + field_offset_val)
        | ComputedReg (reg, base_offset)-> 
-          ComputedReg (reg, base_offset + field_offset_val)
-       | Indirect _ -> failwith "location_of_place: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          FieldAccess (reg, base_offset + field_offset_val)
+       | _ -> failwith "location_of_place: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
       )
 
 let riscv_of_rvalue prog mir_body fundef offset_table rval =
@@ -143,6 +144,9 @@ let rec emit_assignment oc src_loc dst_loc =
         Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location pointer_loc);
         Printf.fprintf oc "%slw t1, 0(t0)\n" indent; (* deref *)
         emit_assignment oc (ComputedReg("t1", 0)) dst_loc
+   | FieldAccess(reg, offset), _ ->
+        Printf.fprintf oc "%slw t0, %d(%s)\n" indent offset reg;  (* toujours lw *)
+        emit_assignment oc (ComputedReg("t0", 0)) dst_loc
    | ComputedReg (src_reg, 0), ComputedReg (dst_reg, 0) ->
        Printf.fprintf oc "%smv %s, %s\n" indent dst_reg src_reg
    | ComputedReg (src_reg, 0), ComputedStack _ ->
@@ -158,6 +162,14 @@ let rec emit_assignment oc src_loc dst_loc =
        Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
    | _ -> failwith "emit_assignment: unsupported case"
   )
+
+let emit_address_calculation oc borrowed_loc =
+  match borrowed_loc with
+  | ComputedStack offset -> 
+      Printf.fprintf oc "%saddi t0, sp, %d\n" indent offset
+  | ComputedReg (reg, offset) ->
+      Printf.fprintf oc "%saddi t0, %s, %d\n" indent reg offset
+  | _ -> failwith "emit_address_calculation: indirect not supported"
 
 let emit_function prog fundef mir_body oc = 
 
@@ -196,7 +208,7 @@ let emit_function prog fundef mir_body oc =
          (match dst_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
           | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
-          | Indirect _ -> failwith "Iassign/RVconst: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVconst: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
          )
      | RVunop (op, place) ->
          let src_loc = location_of_place mir_body prog fundef offset_table place in
@@ -206,7 +218,7 @@ let emit_function prog fundef mir_body oc =
          (match src_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv t0, %s\n" indent (riscv_of_location src_loc)
           | ComputedStack _ -> Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc)
-          | Indirect _ -> failwith "Iassign/RVunop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVunop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
          );
          
          (* Opération *)
@@ -218,7 +230,7 @@ let emit_function prog fundef mir_body oc =
          (match dst_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
           | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
-          | Indirect _ -> failwith "Iassign/RVunop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVunop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
          );
 
      | RVbinop (op, place1, place2) -> 
@@ -228,13 +240,13 @@ let emit_function prog fundef mir_body oc =
          (match src_loc1 with
           | ComputedReg _ -> Printf.fprintf oc "%smv t0, %s\n" indent (riscv_of_location src_loc1)
           | ComputedStack _ -> Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc1)
-          | Indirect _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
          );
 
         (match src_loc2 with
           | ComputedReg _ -> Printf.fprintf oc "%smv t1, %s\n" indent (riscv_of_location src_loc2)
           | ComputedStack _ -> Printf.fprintf oc "%slw t1, %s\n" indent (riscv_of_location src_loc2)
-          | Indirect _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
           );
 
         (match op with
@@ -262,7 +274,7 @@ let emit_function prog fundef mir_body oc =
         (match dst_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
           | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
-          | Indirect _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
          );
 
           ()
@@ -277,18 +289,12 @@ let emit_function prog fundef mir_body oc =
           let borrowed_loc = location_of_place mir_body prog fundef offset_table borrowed_place in
           let dst_loc = location_of_place mir_body prog fundef offset_table pl_dest in
 
-          (match borrowed_loc with
-          | ComputedStack offset -> 
-            Printf.fprintf oc "%saddi t0, sp, %d\n" indent offset;  (* adresse = sp + offset *)
-          | ComputedReg (reg, offset) ->
-            Printf.fprintf oc "%saddi t0, %s, %d\n" indent reg offset;  (* adresse = reg + offset *)
-          | Indirect _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
-          );
+          emit_address_calculation oc borrowed_loc;
          
          (match dst_loc with
           | ComputedReg _ -> Printf.fprintf oc "%smv %s, t0\n" indent (riscv_of_location dst_loc)
           | ComputedStack _ -> Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
-          | Indirect _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
+          | _ -> failwith "Iassign/RVbinop: should be unreachable, case only treated in emit_assignment" (* On a besoin de generer du code pour les indirections, c'est pas super elegant mais ça m'evite un gros refactor *)
           )
     );
     goto_next fundef oc curr_lbl next_lbl
@@ -296,9 +302,16 @@ let emit_function prog fundef mir_body oc =
     | Icall (name, args, retplace, next_lbl) ->
         List.iteri (
           fun i arg_pl ->
+            let arg_typ = typ_of_place prog mir_body arg_pl in
+            (match arg_typ with
+            | Tstruct _ -> 
+                let arg_loc = location_of_place mir_body prog fundef offset_table arg_pl in
+                emit_address_calculation oc arg_loc (* address dans t0 *)
+            | _ ->  
+                Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table arg_pl));
+            );
             if i < 8 then(
-              Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location (location_of_place mir_body prog fundef offset_table arg_pl));
-              Printf.fprintf oc "%smv a%d, t0\n" indent i;
+                Printf.fprintf oc "%smv a%d, t0\n" indent i;
             )
             else
               failwith "todo: store in stack"
