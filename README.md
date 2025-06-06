@@ -241,6 +241,8 @@ They have their name as label, and in_function label are in the form `[fname]_L[
 
 The `emit_function` function is quite long, especially the assignment instruction and I invite you to read it. I tried to make is as understandable as possible.
 
+An important limitation here is that the arguments are stored on the a[0-7] registers. I did not have the time to implement the function arguments overflowing on the stack, so more than 8 arguments in a function is not supported.
+
 #### Testing suite
 
 Having encountered a lot of struggle in the RISC-V assembly, I decided to add unit tests. These tests work with a make function running all .rs files from the backend_tests folder. The functions are hard coded to print the return value of the main function to the console. We compare that value to .expected files. If no such file exist, we just check if this compiles. 
