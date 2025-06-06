@@ -138,10 +138,24 @@ let goto_next fundef oc curr_lbl next_lbl =
     (* Avec l'implementation actuelle de minimir je crois que ça devrait etre unreachable mais autant etre robuste *)
     Printf.fprintf oc "%sj %s\n" indent (label_name fundef next_lbl) 
 
+let rec emit_load_to_register oc src_loc target_reg =
+  match src_loc with
+  | ComputedReg (reg, 0) -> 
+      Printf.fprintf oc "%smv %s, %s\n" indent target_reg reg
+  | ComputedReg (reg, offset) ->
+      Printf.fprintf oc "%slw %s, %d(%s)\n" indent target_reg offset reg
+  | ComputedStack offset ->
+      Printf.fprintf oc "%slw %s, %d(sp)\n" indent target_reg offset
+  | FieldAccess (reg, offset) ->
+      Printf.fprintf oc "%slw %s, %d(%s)\n" indent target_reg offset reg
+  | Indirect pointer_loc ->
+      emit_load_to_register oc pointer_loc "t0"; (* Pour gerer les borrows en chaine *)
+      Printf.fprintf oc "%slw %s, 0(t0)\n" indent target_reg
+
 let rec emit_assignment oc src_loc dst_loc =
   (match src_loc, dst_loc with
    | Indirect(pointer_loc), _ ->
-        Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location pointer_loc);
+        emit_load_to_register oc pointer_loc "t0";
         Printf.fprintf oc "%slw t1, 0(t0)\n" indent; (* deref *)
         emit_assignment oc (ComputedReg("t1", 0)) dst_loc
    | FieldAccess(reg, offset), _ ->
@@ -156,27 +170,15 @@ let rec emit_assignment oc src_loc dst_loc =
        (* Puis traiter t0 -> dst_loc *)
        emit_assignment oc (ComputedReg("t0", 0)) dst_loc
    | ComputedStack _, ComputedReg (dreg, 0) ->
-       Printf.fprintf oc "%slw %s, %s\n" indent dreg (riscv_of_location src_loc)
+       emit_load_to_register oc src_loc dreg;
    | ComputedStack _, ComputedStack _ ->
-       Printf.fprintf oc "%slw t0, %s\n" indent (riscv_of_location src_loc);
+       emit_load_to_register oc src_loc "t0";
        Printf.fprintf oc "%ssw t0, %s\n" indent (riscv_of_location dst_loc)
    | _ -> failwith "emit_assignment: unsupported case"
   )
 
 
-let rec emit_load_to_register oc src_loc target_reg =
-  match src_loc with
-  | ComputedReg (reg, 0) -> 
-      Printf.fprintf oc "%smv %s, %s\n" indent target_reg reg
-  | ComputedReg (reg, offset) ->
-      Printf.fprintf oc "%slw %s, %d(%s)\n" indent target_reg offset reg
-  | ComputedStack offset ->
-      Printf.fprintf oc "%slw %s, %d(sp)\n" indent target_reg offset
-  | FieldAccess (reg, offset) ->
-      Printf.fprintf oc "%slw %s, %d(%s)\n" indent target_reg offset reg
-  | Indirect pointer_loc ->
-      emit_load_to_register oc pointer_loc "t0"; (* Pour gerer les borrows en chaine *)
-      Printf.fprintf oc "%slw %s, 0(t0)\n" indent target_reg
+
 
 let emit_address_calculation oc borrowed_loc =
   match borrowed_loc with
